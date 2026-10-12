@@ -1,7 +1,7 @@
 --=====================================================================
 -- LocalScript (StarterPlayer > StarterPlayerScripts)
 -- Menu : ScreenGui "telavivmenu"
--- Version 4 : UI pro + BTools complets (type F3X) + Walk Fling + aucune limite (1 fichier .luau)
+-- Version 5 : panel dashboard (cartes, flou, animations) + Camlock + Rapid Fire + BTools F3X + Walk Fling (1 fichier .luau)
 --=====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -24,7 +24,9 @@ local Config = {
 		Fly           = { Enum.KeyCode.LeftAlt, Enum.KeyCode.RightAlt },
 		Noclip        = { Enum.KeyCode.N },
 		Aimbot        = { Enum.KeyCode.G },
-		SilentAim     = { Enum.KeyCode.K },
+		SilentAim     = { Enum.KeyCode.I },
+		Camlock       = { Enum.KeyCode.C },
+		RapidFire     = { Enum.KeyCode.U },
 		ESP           = { Enum.KeyCode.H },
 		FlySpeedDown  = { Enum.KeyCode.LeftBracket },
 		FlySpeedUp    = { Enum.KeyCode.RightBracket },
@@ -35,9 +37,9 @@ local Config = {
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
 		JumpPowerUp    = { Enum.KeyCode.Quote },
-		ToggleMenu     = { Enum.KeyCode.RightControl },
+		ToggleMenu     = { Enum.KeyCode.K, Enum.KeyCode.RightControl }, -- K = cacher / afficher le panel
 		FastMod        = { Enum.KeyCode.J },
-		AutoFire       = { Enum.KeyCode.U },
+		AutoFire       = { Enum.KeyCode.O },
 		ClickTP        = { Enum.KeyCode.Y },
 		InfJump        = { Enum.KeyCode.M },
 		TPNext         = { Enum.KeyCode.PageDown },
@@ -147,6 +149,26 @@ local Config = {
 		MaxDistance = math.huge,
 	},
 
+	Camlock = {
+		Enabled = false,
+		TargetPart = "Head",
+		Smoothness = 1,          -- 1 = verrouillage total, plus bas = plus doux
+		Prediction = true,
+		PredictionFactor = 0.12,
+		WallCheck = false,
+		TeamCheck = true,
+		Sticky = true,           -- garde la même cible jusqu'à sa mort (sinon : la plus proche du centre)
+		FOV = 100000,            -- distance max à l'écran (pixels) pour choisir la cible
+		MaxDistance = math.huge,
+	},
+
+	RapidFire = {
+		Enabled = false,
+		Rate = 30,               -- tirs par seconde (aucune limite)
+		Step = 10,
+		HoldOnly = true,         -- ne tire que quand tu maintiens le clic gauche
+	},
+
 	SilentAim = {
 		Enabled = false,
 		FOV = 250,
@@ -251,19 +273,18 @@ local Config = {
 	Menu = {
 		Name = "telavivmenu",
 		Title = "Tel Aviv Menu",
-		Accent = Color3.fromRGB(88, 140, 255),
-		Blur = true,           -- flou d'arrière-plan quand le menu est ouvert
-		BlurSize = 18,
-		Dim = 0.35,            -- assombrissement derrière la fenêtre (0 = aucun)
+		Accent = Color3.fromRGB(36, 140, 255),
+		Blur = true,           -- flou d'arrière-plan quand le panel est ouvert
+		BlurSize = 20,
+		Dim = 0.3,             -- assombrissement derrière le panel (0 à 1)
 		Animations = true,
 		AnimBorder = true,     -- bordure animée
-		Width = 940,
-		Height = 640,
-		DefaultWidth = 940,
-		DefaultHeight = 640,
+		Width = 1080,
+		Height = 680,
+		DefaultWidth = 1080,
+		DefaultHeight = 680,
 		StartPosition = UDim2.new(0.5, 0, 0.5, 0),
-	},
-}
+	},}
 
 ----------------------------------------------------------------------
 -- Utilitaires
@@ -894,6 +915,87 @@ RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 
 end)
 
 ----------------------------------------------------------------------
+-- Camlock : verrouille la caméra sur un joueur
+----------------------------------------------------------------------
+local camTarget = nil
+local camState = {}
+
+local function camValid(plr, c)
+	local char = plr and plr.Parent and plr.Character
+	if not char then return nil end
+	local hum = char:FindFirstChildOfClass("Humanoid")
+	local part = char:FindFirstChild(c.TargetPart) or char:FindFirstChild("HumanoidRootPart")
+	if not hum or not part or hum.Health <= 0 then return nil end
+	return part, char
+end
+
+local function camPick(c)
+	local viewport = camera.ViewportSize
+	local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
+	local best, bestDist = nil, c.FOV
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other == player then continue end
+		if c.TeamCheck and other.Team ~= nil and other.Team == player.Team then continue end
+		local part = camValid(other, c)
+		if not part then continue end
+		if (part.Position - camera.CFrame.Position).Magnitude > c.MaxDistance then continue end
+		if c.WallCheck and not isVisible(part) then continue end
+		local sp = camera:WorldToViewportPoint(part.Position)
+		local d = (Vector2.new(sp.X, sp.Y) - center).Magnitude
+		if d < bestDist then best, bestDist = other, d end
+	end
+	return best
+end
+
+function camState.lockNearest()
+	camTarget = camPick(Config.Camlock)
+	return camTarget
+end
+
+RunService:BindToRenderStep("TelAvivCamlock", Enum.RenderPriority.Camera.Value + 2, function()
+	local c = Config.Camlock
+	if not c.Enabled then camTarget = nil return end
+	if not (c.Sticky and camTarget and camValid(camTarget, c)) then
+		camTarget = camPick(c)
+	end
+	if not camTarget then return end
+	local part, char = camValid(camTarget, c)
+	if not part then return end
+	local pos = part.Position
+	if c.Prediction then
+		local root = char:FindFirstChild("HumanoidRootPart")
+		if root then pos += root.AssemblyLinearVelocity * c.PredictionFactor end
+	end
+	local camPos = camera.CFrame.Position
+	camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camPos, pos), math.clamp(c.Smoothness, 0.01, 1))
+end)
+
+----------------------------------------------------------------------
+-- Rapid Fire : tirs répétés très rapides avec l'arme en main
+----------------------------------------------------------------------
+do
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		local r = Config.RapidFire
+		if not r.Enabled then acc = 0 return end
+		if r.HoldOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then acc = 0 return end
+		if UIS:GetFocusedTextBox() then return end
+		if menuFrameRef and menuFrameRef.Visible then
+			local m = UIS:GetMouseLocation()
+			local p, sz = menuFrameRef.AbsolutePosition, menuFrameRef.AbsoluteSize
+			if m.X >= p.X and m.X <= p.X + sz.X and m.Y >= p.Y and m.Y <= p.Y + sz.Y then return end
+		end
+		local char = player.Character
+		local tool = char and char:FindFirstChildOfClass("Tool")
+		if not tool then return end
+		acc += dt * math.max(r.Rate, 0)
+		local n = math.min(math.floor(acc), 60) -- 60 max par image (évite de figer le client)
+		acc -= math.floor(acc)
+		for _ = 1, n do tool:Activate() end
+	end)
+end
+
+----------------------------------------------------------------------
 -- ESP
 ----------------------------------------------------------------------
 local espObjects = {}
@@ -1411,6 +1513,8 @@ local function setFastMod(v)
 	refreshUI()
 end
 local function setAutoFire(v) Config.FastMod.AutoFire = v; refreshUI() end
+local function setCamlock(v) Config.Camlock.Enabled = v; if v then camState.lockNearest() end; refreshUI() end
+local function setRapidFire(v) Config.RapidFire.Enabled = v; refreshUI() end
 local function setFastDelayMs(ms)
 	Config.FastMod.Delay = math.floor(ms) / 1000
 	refreshUI()
@@ -1450,7 +1554,7 @@ local U = {}     -- partage entre les blocs GUI
 local BTf = {}   -- fonctions BTools (remplies plus bas)
 
 ----------------------------------------------------------------------
--- BLOC 1 : interface v5 (verre dépoli, flou, onglets + sous-onglets, recherche globale, animations)
+-- BLOC 1 : interface v6 (panel dashboard : cartes, flou, animations, recherche globale)
 ----------------------------------------------------------------------
 do
 	local M = Config.Menu
@@ -1458,18 +1562,18 @@ do
 	local TextService = game:GetService("TextService")
 
 	local T = {
-		Bg        = Color3.fromRGB(11, 12, 17),
-		Panel     = Color3.fromRGB(16, 18, 25),
-		Card      = Color3.fromRGB(24, 27, 36),
-		CardHover = Color3.fromRGB(33, 37, 49),
-		Stroke    = Color3.fromRGB(44, 49, 64),
-		Off       = Color3.fromRGB(58, 63, 80),
+		Bg        = Color3.fromRGB(6, 11, 26),
+		Panel     = Color3.fromRGB(9, 18, 42),
+		Card      = Color3.fromRGB(12, 25, 58),
+		CardHover = Color3.fromRGB(21, 44, 96),
+		Stroke    = Color3.fromRGB(30, 72, 150),
+		Off       = Color3.fromRGB(54, 66, 100),
 		Accent    = M.Accent,
-		Text      = Color3.fromRGB(236, 238, 246),
-		SubText   = Color3.fromRGB(139, 146, 166),
+		Text      = Color3.fromRGB(232, 240, 255),
+		SubText   = Color3.fromRGB(140, 162, 205),
 		On        = Color3.fromRGB(52, 199, 120),
 		Danger    = Color3.fromRGB(240, 82, 82),
-		Dark      = Color3.fromRGB(14, 15, 20),
+		Dark      = Color3.fromRGB(5, 9, 20),
 	}
 	U.T = T
 
@@ -1592,10 +1696,10 @@ do
 	----------------------------------------------------------------
 	-- Fenêtre principale
 	----------------------------------------------------------------
-	local N = { pages = {}, order = {}, sections = {}, ord = 0, y = 14, open = true, minimized = false, compact = false }
+	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
-	local HEAD_H = 60
-	local SIDE_W = 220
+	local HEAD_H = 64
+	local SIDE_W = 200
 	local FULL = UDim2.new(0, M.Width, 0, M.Height)
 
 	local main = Instance.new("Frame")
@@ -1604,7 +1708,7 @@ do
 	main.Position = M.StartPosition
 	main.Size = FULL
 	main.BackgroundColor3 = Color3.new(1, 1, 1)
-	main.BackgroundTransparency = 0.03
+	main.BackgroundTransparency = 0.04
 	main.BorderSizePixel = 0
 	main.Active = true
 	main.ClipsDescendants = true
@@ -1619,14 +1723,14 @@ do
 
 	do
 		local bg = Instance.new("UIGradient")
-		bg.Color = ColorSequence.new(Color3.fromRGB(22, 24, 34), Color3.fromRGB(10, 11, 16))
+		bg.Color = ColorSequence.new(Color3.fromRGB(13, 26, 62), Color3.fromRGB(5, 9, 22))
 		bg.Rotation = 125
 		bg.Parent = main
 
 		-- bordure animée
 		local ms = Instance.new("UIStroke")
 		ms.Color = Color3.new(1, 1, 1)
-		ms.Thickness = 1.6
+		ms.Thickness = 2
 		ms.Transparency = 0.2
 		ms.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		ms.Parent = main
@@ -1799,13 +1903,31 @@ do
 		lt.ZIndex = 7
 		lt.Parent = logo
 
-		local title = newLabel(header, M.Title, 16, T.Text, Enum.Font.GothamBold)
-		title.Position = UDim2.new(0, 64, 0.5, -19)
-		title.Size = UDim2.new(0, 160, 0, 20)
+		local tw1 = TextService:GetTextSize("Tel Aviv", 20, Enum.Font.GothamBlack, Vector2.new(400, 30)).X
+		local title = newLabel(header, "Tel Aviv", 20, T.Text, Enum.Font.GothamBlack)
+		title.Position = UDim2.new(0, 64, 0.5, -20)
+		title.Size = UDim2.new(0, tw1, 0, 24)
 		title.ZIndex = 6
-		local sub = newLabel(header, "menu client  •  v5", 11, T.SubText, Enum.Font.Gotham)
-		sub.Position = UDim2.new(0, 64, 0.5, 2)
-		sub.Size = UDim2.new(0, 160, 0, 16)
+		local title2 = newLabel(header, "Menu", 20, T.Accent, Enum.Font.GothamBlack)
+		title2.Position = UDim2.new(0, 64 + tw1 + 6, 0.5, -20)
+		title2.Size = UDim2.new(0, 60, 0, 24)
+		title2.ZIndex = 6
+		local ver = Instance.new("TextLabel")
+		ver.Position = UDim2.new(0, 64 + tw1 + 6 + 58, 0.5, -17)
+		ver.Size = UDim2.new(0, 28, 0, 18)
+		ver.BackgroundColor3 = T.Accent
+		ver.BackgroundTransparency = 0.7
+		ver.BorderSizePixel = 0
+		ver.Font = Enum.Font.GothamBold
+		ver.TextSize = 11
+		ver.TextColor3 = T.Text
+		ver.Text = "v5"
+		ver.ZIndex = 6
+		ver.Parent = header
+		corner(ver, 9)
+		local sub = newLabel(header, "More Power. No Limits.", 11, T.SubText, Enum.Font.Gotham)
+		sub.Position = UDim2.new(0, 64, 0.5, 6)
+		sub.Size = UDim2.new(0, 190, 0, 14)
 		sub.ZIndex = 6
 		V.sub = sub
 	end
@@ -1846,7 +1968,7 @@ do
 		chips.Name = "Chips"
 		chips.BackgroundTransparency = 1
 		chips.AnchorPoint = Vector2.new(1, 0.5)
-		chips.Position = UDim2.new(1, -96, 0.5, 0)
+		chips.Position = UDim2.new(1, -100, 0.5, 0)
 		chips.Size = UDim2.new(0, 0, 0, 26)
 		chips.AutomaticSize = Enum.AutomaticSize.X
 		chips.ZIndex = 6
@@ -1895,8 +2017,7 @@ do
 		end
 		local fpsL, fpsDot = chip(1)
 		local pingL, pingDot = chip(2)
-		local plrL = chip(3)
-		local frames, acc = 0, 0
+				local frames, acc = 0, 0
 		RunService.RenderStepped:Connect(function(dt)
 			frames += 1
 			acc += dt
@@ -1936,7 +2057,7 @@ do
 	end
 
 	----------------------------------------------------------------
-	-- Corps : barre latérale + contenu
+	-- Corps : barre latérale + zone des cartes
 	----------------------------------------------------------------
 	local body = Instance.new("Frame")
 	body.Name = "Body"
@@ -1950,11 +2071,16 @@ do
 	sidebar.Name = "Sidebar"
 	sidebar.Size = UDim2.new(0, SIDE_W, 1, 0)
 	sidebar.BackgroundColor3 = T.Panel
-	sidebar.BackgroundTransparency = 0.35
+	sidebar.BackgroundTransparency = 0.3
 	sidebar.BorderSizePixel = 0
 	sidebar.ZIndex = 2
 	sidebar.Parent = body
 	V.sidebar = sidebar
+
+	local NAV = {
+		{ "Home", "🏠" }, { "Movement", "🏃" }, { "Combat", "🎯" }, { "Troll", "😈" }, { "Visuals", "👁" }, { "Teleport", "📍" },
+		{ "Player", "🧍" }, { "BTools", "🔨" }, { "Misc", "🧰" }, { "Settings", "⚙" },
+	}
 
 	do
 		local sl = Instance.new("Frame")
@@ -1974,26 +2100,61 @@ do
 		nav.Parent = sidebar
 		V.nav = nav
 
-		-- pastille qui glisse sous l'onglet actif
+		-- pastille pleine qui glisse sous l'onglet actif
 		local pill = Instance.new("Frame")
 		pill.Name = "Pill"
-		pill.Position = UDim2.new(0, 10, 0, 40)
+		pill.Position = UDim2.new(0, 10, 0, 14)
 		pill.Size = UDim2.new(1, -20, 0, 40)
-		pill.BackgroundColor3 = T.Accent
-		pill.BackgroundTransparency = 0.86
+		pill.BackgroundColor3 = Color3.new(1, 1, 1)
 		pill.BorderSizePixel = 0
 		pill.ZIndex = 3
 		pill.Parent = nav
 		corner(pill, 10)
-		local pb = Instance.new("Frame")
-		pb.Position = UDim2.new(0, 0, 0.22, 0)
-		pb.Size = UDim2.new(0, 3, 0.56, 0)
-		pb.BackgroundColor3 = T.Accent
-		pb.BorderSizePixel = 0
-		pb.ZIndex = 4
-		pb.Parent = pill
-		corner(pb, 2)
+		accentGradient(pill, 0)
+		local pst = stroke(pill, T.Accent, 1)
+		pst.Transparency = 0.2
 		V.pill = pill
+
+		for i, e in ipairs(NAV) do
+			local name, icon = e[1], e[2]
+			local item = Instance.new("TextButton")
+			item.Name = "Nav_" .. name
+			item.Position = UDim2.new(0, 10, 0, 14 + (i - 1) * 44)
+			item.Size = UDim2.new(1, -20, 0, 40)
+			item.BackgroundTransparency = 1
+			item.AutoButtonColor = false
+			item.Text = ""
+			item.ZIndex = 5
+			item.Parent = nav
+			local ic = Instance.new("TextLabel")
+			ic.BackgroundTransparency = 1
+			ic.Size = UDim2.new(0, 44, 1, 0)
+			ic.Font = Enum.Font.GothamMedium
+			ic.TextSize = 18
+			ic.TextColor3 = T.Text
+			ic.Text = icon
+			ic.ZIndex = 6
+			ic.Parent = item
+			local tx = newLabel(item, name, 14, T.SubText, Enum.Font.GothamMedium)
+			tx.Position = UDim2.new(0, 44, 0, 0)
+			tx.Size = UDim2.new(1, -48, 1, 0)
+			tx.ZIndex = 6
+			item.MouseEnter:Connect(function()
+				if N.nav ~= name then
+					tw(tx, { TextColor3 = T.Text }, 0.12)
+					tw(ic, { Position = UDim2.new(0, 4, 0, 0) }, 0.15)
+				end
+			end)
+			item.MouseLeave:Connect(function()
+				if N.nav ~= name then
+					tw(tx, { TextColor3 = T.SubText }, 0.12)
+				end
+				tw(ic, { Position = UDim2.new(0, 0, 0, 0) }, 0.15)
+			end)
+			item.MouseButton1Click:Connect(function() N.selectPage(name) end)
+			N.navs[name] = { item = item, txt = tx, icon = ic, y = 14 + (i - 1) * 44 }
+			table.insert(N.navOrder, name)
+		end
 
 		-- carte joueur
 		local card = Instance.new("Frame")
@@ -2033,6 +2194,7 @@ do
 		V.userNm, V.userSt = nm, st2
 	end
 
+	-- zone de contenu (CanvasGroup : fondu + glissement à chaque changement d'onglet)
 	local content = Instance.new("Frame")
 	content.Name = "Content"
 	content.BackgroundTransparency = 1
@@ -2043,55 +2205,117 @@ do
 	content.Parent = body
 	V.content = content
 
-	----------------------------------------------------------------
-	-- Recherche globale (barre du haut)
-	----------------------------------------------------------------
-	local registry = {} -- { text, page, tab, row }
+	local area = Instance.new("CanvasGroup")
+	area.Name = "Area"
+	area.BackgroundTransparency = 1
+	area.BorderSizePixel = 0
+	area.ZIndex = 2
+	area.Parent = content
+	local AREA_POS = UDim2.new(0, 14, 0, 12)
+	area.Position = AREA_POS
+	area.Size = UDim2.new(1, -28, 1, -24)
 
-	local function animateIn(pg)
-		local base = pg.areaBase
-		pg.area.GroupTransparency = 1
-		pg.area.Position = base + UDim2.fromOffset(0, 16)
-		tw(pg.area, { GroupTransparency = 0, Position = base }, 0.38)
+	local scroll = Instance.new("ScrollingFrame")
+	scroll.Name = "Scroll"
+	scroll.Size = UDim2.new(1, 0, 1, 0)
+	scroll.BackgroundTransparency = 1
+	scroll.BorderSizePixel = 0
+	scroll.CanvasSize = UDim2.new()
+	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scroll.ScrollBarThickness = 4
+	scroll.ScrollBarImageColor3 = T.Accent
+	scroll.ZIndex = 2
+	scroll.Parent = area
+	do
+		local pd = Instance.new("UIPadding", scroll)
+		pd.PaddingBottom = UDim.new(0, 16)
+		pd.PaddingRight = UDim.new(0, 8)
+		pd.PaddingTop = UDim.new(0, 2)
+	end
+	V.scroll = scroll
+
+	local grid = Instance.new("Frame")
+	grid.Name = "Grid"
+	grid.BackgroundTransparency = 1
+	grid.Size = UDim2.new(1, 0, 0, 0)
+	grid.AutomaticSize = Enum.AutomaticSize.Y
+	grid.Parent = scroll
+
+	local pool = Instance.new("Frame") -- cartes non affichées
+	pool.Name = "Pool"
+	pool.Visible = false
+	pool.BackgroundTransparency = 1
+	pool.Parent = gui
+
+	local registry = {} -- { text, card, row }
+	N.cols = {}
+
+	-- répartit les cartes de l'onglet courant en 1 à 3 colonnes (la plus courte d'abord)
+	function N.layout()
+		local sbw = N.compact and 68 or SIDE_W
+		local w = FULL.X.Offset - sbw - 28 - 12
+		local ncols = (w >= 740 and 3) or (w >= 480 and 2) or 1
+		local gap = 12
+		for _, ci in ipairs(N.cards) do ci.frame.Parent = pool end
+		for _, c in ipairs(N.cols) do c:Destroy() end
+		N.cols = {}
+		local hs = {}
+		for i = 1, ncols do
+			local c = Instance.new("Frame")
+			c.Name = "Col" .. i
+			c.BackgroundTransparency = 1
+			c.Size = UDim2.new(1 / ncols, -gap * (ncols - 1) / ncols, 0, 0)
+			c.Position = UDim2.new((i - 1) / ncols, (i - 1) * gap / ncols, 0, 0)
+			c.AutomaticSize = Enum.AutomaticSize.Y
+			c.Parent = grid
+			local l = Instance.new("UIListLayout", c)
+			l.Padding = UDim.new(0, gap)
+			l.SortOrder = Enum.SortOrder.LayoutOrder
+			N.cols[i] = c
+			hs[i] = 0
+		end
+		local seq = 0
+		for _, ci in ipairs(N.cards) do
+			if N.nav == "Home" or table.find(ci.cats, N.nav) then
+				local best = 1
+				for i = 2, ncols do
+					if hs[i] < hs[best] - 1 then best = i end
+				end
+				seq += 1
+				ci.frame.LayoutOrder = seq
+				ci.frame.Parent = N.cols[best]
+				hs[best] += ci.h + gap
+			end
+		end
 	end
 
-	function N.showTab(pg, tab, first)
-		local t = pg.tabs[tab]
-		if not t then return end
-		pg.active = tab
-		for n, tt in pairs(pg.tabs) do
-			local on = (n == tab)
-			tt.sf.Visible = on
-			tw(tt.btn, { TextColor3 = on and T.Text or T.SubText }, 0.15)
-		end
-		if first then
-			pg.ind.Position = UDim2.new(0, t.x, 0, 4)
-			pg.ind.Size = UDim2.new(0, t.w, 1, -8)
-		else
-			tw(pg.ind, { Position = UDim2.new(0, t.x, 0, 4), Size = UDim2.new(0, t.w, 1, -8) }, 0.32, Enum.EasingStyle.Back)
-			animateIn(pg)
-		end
+	local function animateIn()
+		if not M.Animations then area.GroupTransparency = 0 area.Position = AREA_POS return end
+		area.GroupTransparency = 1
+		area.Position = AREA_POS + UDim2.fromOffset(0, 18)
+		tw(area, { GroupTransparency = 0, Position = AREA_POS }, 0.4)
 	end
 
 	function N.selectPage(name)
-		local pg = N.pages[name]
-		if not pg then return end
-		N.page = name
-		for n, p in pairs(N.pages) do
+		local nv = N.navs[name]
+		if not nv then return end
+		N.nav = name
+		for n, e in pairs(N.navs) do
 			local on = (n == name)
-			p.holder.Visible = on
-			tw(p.txt, { TextColor3 = on and T.Text or T.SubText }, 0.15)
-			tw(p.icon, { TextTransparency = on and 0 or 0.4 }, 0.15)
+			tw(e.txt, { TextColor3 = on and Color3.new(1, 1, 1) or T.SubText }, 0.15)
 		end
-		tw(V.pill, { Position = UDim2.new(0, 10, 0, pg.navY) }, 0.4, Enum.EasingStyle.Back)
-		animateIn(pg)
+		tw(V.pill, { Position = UDim2.new(0, 10, 0, nv.y) }, 0.4, Enum.EasingStyle.Back)
+		scroll.CanvasPosition = Vector2.new(0, 0)
+		N.layout()
+		animateIn()
 	end
+
 
 	do
 		local sbox = Instance.new("Frame")
 		sbox.Name = "SearchBox"
 		sbox.AnchorPoint = Vector2.new(0, 0.5)
-		sbox.Position = UDim2.new(0, 250, 0.5, 0)
+		sbox.Position = UDim2.new(0, 330, 0.5, 0)
 		sbox.Size = UDim2.new(0, 230, 0, 34)
 		sbox.BackgroundColor3 = T.Card
 		sbox.BorderSizePixel = 0
@@ -2129,7 +2353,7 @@ do
 
 		local drop = Instance.new("Frame")
 		drop.Name = "Results"
-		drop.Position = UDim2.new(0, 250, 0.5, 26)
+		drop.Position = UDim2.new(0, 330, 0.5, 26)
 		drop.Size = UDim2.new(0, 330, 0, 0)
 		drop.BackgroundColor3 = T.Panel
 		drop.BorderSizePixel = 0
@@ -2148,31 +2372,20 @@ do
 		dp.PaddingRight = UDim.new(0, 6)
 
 		local function pulse(row)
-			local st = row:FindFirstChildOfClass("UIStroke")
-			if st then
-				tw(st, { Color = T.Accent, Thickness = 2 }, 0.2)
-				task.delay(dur(1.1), function()
-					if st.Parent then tw(st, { Color = T.Stroke, Thickness = 1 }, 0.5) end
-				end)
-			end
-			local old = row.BackgroundColor3
-			tw(row, { BackgroundColor3 = T.CardHover }, 0.2)
-			task.delay(dur(0.9), function()
-				if row.Parent then tw(row, { BackgroundColor3 = old }, 0.5) end
+			tw(row, { BackgroundTransparency = 0.55 }, 0.2)
+			task.delay(dur(1.2), function()
+				if row.Parent then tw(row, { BackgroundTransparency = 1 }, 0.6) end
 			end)
 		end
 
 		local function jump(e)
 			box.Text = ""
 			box:ReleaseFocus()
-			N.selectPage(e.page)
-			local pg = N.pages[e.page]
-			N.showTab(pg, e.tab)
-			task.delay(dur(0.15), function()
-				local sf = pg.tabs[e.tab].sf
-				if e.row and e.row.Parent then
-					local y = e.row.AbsolutePosition.Y - sf.AbsolutePosition.Y + sf.CanvasPosition.Y
-					sf.CanvasPosition = Vector2.new(0, math.max(0, (y - 14) / scale.Scale))
+			N.selectPage(e.card.cats[2] or "Home")
+			task.delay(dur(0.2), function()
+				if e.row and e.row.Parent and e.row.Parent.Parent then
+					local y = e.row.AbsolutePosition.Y - V.scroll.AbsolutePosition.Y + V.scroll.CanvasPosition.Y
+					V.scroll.CanvasPosition = Vector2.new(0, math.max(0, (y - 20) / scale.Scale))
 					pulse(e.row)
 				end
 			end)
@@ -2193,7 +2406,7 @@ do
 			end
 			if #results < 8 then
 				for _, e in ipairs(registry) do
-					if not table.find(results, e) and (e.tab:lower():find(q, 1, true) or e.page:lower():find(q, 1, true)) then
+					if not table.find(results, e) and e.card.title:lower():find(q, 1, true) then
 						table.insert(results, e)
 					end
 				end
@@ -2224,7 +2437,7 @@ do
 				t1.Size = UDim2.new(1, -20, 0, 18)
 				t1.ZIndex = 22
 				t1.TextTruncate = Enum.TextTruncate.AtEnd
-				local t2 = newLabel(b, e.page .. "  ›  " .. e.tab, 11, T.SubText, Enum.Font.Gotham)
+				local t2 = newLabel(b, e.card.title, 11, T.SubText, Enum.Font.Gotham)
 				t2.Position = UDim2.new(0, 10, 0, 21)
 				t2.Size = UDim2.new(1, -20, 0, 15)
 				t2.ZIndex = 22
@@ -2266,133 +2479,178 @@ do
 	end
 
 	----------------------------------------------------------------
-	-- Widgets
+	-- Cartes + widgets compacts
 	----------------------------------------------------------------
-	local function nextOrder()
-		N.ord += 1
-		return N.ord
+	local function makeCard(title, icon, cats)
+		local card = Instance.new("Frame")
+		card.Name = "Card_" .. title
+		card.Size = UDim2.new(1, 0, 0, 0)
+		card.AutomaticSize = Enum.AutomaticSize.Y
+		card.BackgroundColor3 = T.Card
+		card.BackgroundTransparency = 0.1
+		card.BorderSizePixel = 0
+		card.Parent = pool
+		corner(card, 12)
+		local st = stroke(card, T.Stroke, 1.2)
+		local gr = Instance.new("UIGradient")
+		gr.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 200, 225))
+		gr.Rotation = 90
+		gr.Parent = card
+		local ll = Instance.new("UIListLayout", card)
+		ll.Padding = UDim.new(0, 3)
+		ll.SortOrder = Enum.SortOrder.LayoutOrder
+		local pd = Instance.new("UIPadding", card)
+		pd.PaddingTop = UDim.new(0, 10)
+		pd.PaddingBottom = UDim.new(0, 12)
+		pd.PaddingLeft = UDim.new(0, 12)
+		pd.PaddingRight = UDim.new(0, 12)
+
+		local hd = Instance.new("Frame")
+		hd.LayoutOrder = 0
+		hd.Size = UDim2.new(1, 0, 0, 30)
+		hd.BackgroundTransparency = 1
+		hd.Parent = card
+		local ic = Instance.new("TextLabel")
+		ic.BackgroundTransparency = 1
+		ic.Size = UDim2.new(0, 24, 0, 24)
+		ic.Font = Enum.Font.GothamBold
+		ic.TextSize = 17
+		ic.TextColor3 = T.Accent
+		ic.Text = icon
+		ic.Parent = hd
+		local tl = newLabel(hd, title, 15, T.Text, Enum.Font.GothamBold)
+		tl.Position = UDim2.new(0, 30, 0, 0)
+		tl.Size = UDim2.new(1, -30, 0, 24)
+		local ln = Instance.new("Frame")
+		ln.Position = UDim2.new(0, 0, 1, -2)
+		ln.Size = UDim2.new(1, 0, 0, 1)
+		ln.BackgroundColor3 = T.Stroke
+		ln.BorderSizePixel = 0
+		ln.Parent = hd
+
+		local c = { frame = card, h = 66, cats = cats, title = title, n = 0, stroke = st }
+		table.insert(N.cards, c)
+		N.cur = c
+		card.MouseEnter:Connect(function() tw(st, { Color = T.Accent }, 0.2) end)
+		card.MouseLeave:Connect(function() tw(st, { Color = T.Stroke }, 0.25) end)
+		return c
+	end
+
+	local function addRow(h)
+		local c = N.cur
+		c.n += 1
+		c.h += h + 3
+		local r = Instance.new("Frame")
+		r.LayoutOrder = c.n
+		r.Size = UDim2.new(1, 0, 0, h)
+		r.BackgroundColor3 = T.Accent
+		r.BackgroundTransparency = 1
+		r.BorderSizePixel = 0
+		r.ClipsDescendants = true
+		r.Parent = c.frame
+		corner(r, 7)
+		return r
 	end
 
 	local function register(row, text)
-		table.insert(registry, { text = text, page = N.cur.name, tab = N.cur.active_build, row = row })
+		table.insert(registry, { text = text, card = N.cur, row = row })
 	end
 
-	local function makeRow(h)
-		local row = Instance.new("Frame")
-		row.LayoutOrder = nextOrder()
-		row.Size = UDim2.new(1, 0, 0, h or 48)
-		row.BackgroundColor3 = T.Card
-		row.BorderSizePixel = 0
-		row.ClipsDescendants = true
-		row.Parent = N.scroll
-		corner(row, 11)
-		local st = stroke(row, T.Stroke, 1)
-		return row, st
+	local function hoverRow(row, hit)
+		hit.MouseEnter:Connect(function() tw(row, { BackgroundTransparency = 0.88 }, 0.12) end)
+		hit.MouseLeave:Connect(function() tw(row, { BackgroundTransparency = 1 }, 0.18) end)
 	end
 
-	local function rowLabel(row, text, reserve)
-		local l = newLabel(row, text, 14, T.Text, Enum.Font.GothamMedium)
-		l.Position = UDim2.new(0, 16, 0, 0)
-		l.Size = UDim2.new(1, -(reserve or 140), 1, 0)
-		l.TextTruncate = Enum.TextTruncate.AtEnd
-		l.ZIndex = 3
-		return l
-	end
-
-	local function hoverRow(row, st, hit)
-		hit.MouseEnter:Connect(function()
-			tw(row, { BackgroundColor3 = T.CardHover }, 0.14)
-			tw(st, { Color = T.Stroke:Lerp(T.Accent, 0.55) }, 0.14)
-		end)
-		hit.MouseLeave:Connect(function()
-			tw(row, { BackgroundColor3 = T.Card }, 0.18)
-			tw(st, { Color = T.Stroke }, 0.18)
-		end)
-	end
-
-	local function makeHeader(text)
-		local f = Instance.new("Frame")
-		f.LayoutOrder = nextOrder()
-		f.Size = UDim2.new(1, 0, 0, 34)
-		f.BackgroundTransparency = 1
-		f.Parent = N.scroll
-		local l = newLabel(f, text:upper(), 11, T.Accent, Enum.Font.GothamBold)
-		l.Position = UDim2.new(0, 4, 0, 10)
-		l.Size = UDim2.new(0, 0, 0, 16)
-		l.AutomaticSize = Enum.AutomaticSize.X
-		local w = TextService:GetTextSize(text:upper(), 11, Enum.Font.GothamBold, Vector2.new(600, 20)).X
-		local ln = Instance.new("Frame")
-		ln.Position = UDim2.new(0, w + 16, 0, 18)
-		ln.Size = UDim2.new(1, -(w + 20), 0, 1)
-		ln.BackgroundColor3 = T.Stroke
-		ln.BorderSizePixel = 0
-		ln.Parent = f
-	end
-
-	local function makeNote(text)
-		local l = newLabel(N.scroll, text, 13, T.SubText, Enum.Font.Gotham)
-		l.LayoutOrder = nextOrder()
-		l.Size = UDim2.new(1, 0, 0, 0)
-		l.AutomaticSize = Enum.AutomaticSize.Y
-		l.TextWrapped = true
-		l.TextYAlignment = Enum.TextYAlignment.Top
-		local pd = Instance.new("UIPadding", l)
-		pd.PaddingLeft = UDim.new(0, 4)
-		pd.PaddingRight = UDim.new(0, 4)
-	end
-
-	local function makeToggle(text, getter, setter, keyText)
-		local row, st = makeRow(48)
-		rowLabel(row, text, keyText and 200 or 96)
-
-		local track = Instance.new("Frame")
-		track.AnchorPoint = Vector2.new(1, 0.5)
-		track.Position = UDim2.new(1, -16, 0.5, 0)
-		track.Size = UDim2.new(0, 46, 0, 24)
-		track.BackgroundColor3 = T.Off
-		track.BorderSizePixel = 0
-		track.ZIndex = 3
-		track.Parent = row
-		corner(track, 12)
-		local knob = Instance.new("Frame")
-		knob.AnchorPoint = Vector2.new(0, 0.5)
-		knob.Position = UDim2.new(0, 3, 0.5, 0)
-		knob.Size = UDim2.new(0, 18, 0, 18)
-		knob.BackgroundColor3 = Color3.new(1, 1, 1)
-		knob.BorderSizePixel = 0
-		knob.ZIndex = 4
-		knob.Parent = track
-		knob:SetAttribute("keep", true)
-		corner(knob, 9)
-
-		if keyText then
-			local badge = Instance.new("TextLabel")
-			badge.AnchorPoint = Vector2.new(1, 0.5)
-			badge.Position = UDim2.new(1, -76, 0.5, 0)
-			badge.Size = UDim2.new(0, 0, 0, 24)
-			badge.AutomaticSize = Enum.AutomaticSize.X
-			badge.BackgroundColor3 = T.Bg
-			badge.BorderSizePixel = 0
-			badge.Font = Enum.Font.GothamBold
-			badge.TextSize = 11
-			badge.TextColor3 = T.SubText
-			badge.Text = keyText
-			badge.ZIndex = 3
-			badge.Parent = row
-			corner(badge, 6)
-			stroke(badge, T.Stroke, 1)
-			local bp = Instance.new("UIPadding", badge)
-			bp.PaddingLeft = UDim.new(0, 9)
-			bp.PaddingRight = UDim.new(0, 9)
-		end
-
+	local function hitButton(row)
 		local hit = Instance.new("TextButton")
 		hit.BackgroundTransparency = 1
 		hit.Size = UDim2.new(1, 0, 1, 0)
 		hit.Text = ""
 		hit.ZIndex = 5
 		hit.Parent = row
-		hoverRow(row, st, hit)
+		return hit
+	end
+
+	local function rowLabel(row, text, w)
+		local l = newLabel(row, text, 13, T.Text, Enum.Font.GothamMedium)
+		l.Position = UDim2.new(0, 4, 0, 0)
+		l.Size = w or UDim2.new(1, -60, 1, 0)
+		l.TextTruncate = Enum.TextTruncate.AtEnd
+		l.ZIndex = 3
+		return l
+	end
+
+	local function makeSub(text)
+		local r = addRow(26)
+		r.ClipsDescendants = false
+		local l = newLabel(r, text, 13, T.Text, Enum.Font.GothamBold)
+		l.Position = UDim2.new(0, 2, 0, 6)
+		l.Size = UDim2.new(1, 0, 0, 18)
+		local ln = Instance.new("Frame")
+		ln.Position = UDim2.new(0, 0, 0, 3)
+		ln.Size = UDim2.new(1, 0, 0, 1)
+		ln.BackgroundColor3 = T.Stroke
+		ln.BorderSizePixel = 0
+		ln.Parent = r
+	end
+
+	local function makeNote(text)
+		local h = TextService:GetTextSize(text, 11, Enum.Font.Gotham, Vector2.new(240, 2000)).Y + 6
+		local r = addRow(h)
+		local l = newLabel(r, text, 11, T.SubText, Enum.Font.Gotham)
+		l.Position = UDim2.new(0, 4, 0, 2)
+		l.Size = UDim2.new(1, -8, 1, -2)
+		l.TextWrapped = true
+		l.TextYAlignment = Enum.TextYAlignment.Top
+	end
+
+	local function makeToggle(text, getter, setter, keyText)
+		local row = addRow(28)
+		rowLabel(row, text, UDim2.new(1, keyText and -112 or -56, 1, 0))
+
+		local track = Instance.new("Frame")
+		track.AnchorPoint = Vector2.new(1, 0.5)
+		track.Position = UDim2.new(1, -4, 0.5, 0)
+		track.Size = UDim2.new(0, 38, 0, 20)
+		track.BackgroundColor3 = T.Off
+		track.BorderSizePixel = 0
+		track.ZIndex = 3
+		track.Parent = row
+		corner(track, 10)
+		local knob = Instance.new("Frame")
+		knob.AnchorPoint = Vector2.new(0, 0.5)
+		knob.Position = UDim2.new(0, 3, 0.5, 0)
+		knob.Size = UDim2.new(0, 14, 0, 14)
+		knob.BackgroundColor3 = Color3.new(1, 1, 1)
+		knob.BorderSizePixel = 0
+		knob.ZIndex = 4
+		knob.Parent = track
+		knob:SetAttribute("keep", true)
+		corner(knob, 7)
+
+		if keyText then
+			local badge = Instance.new("TextLabel")
+			badge.AnchorPoint = Vector2.new(1, 0.5)
+			badge.Position = UDim2.new(1, -50, 0.5, 0)
+			badge.Size = UDim2.new(0, 0, 0, 20)
+			badge.AutomaticSize = Enum.AutomaticSize.X
+			badge.BackgroundColor3 = T.Bg
+			badge.BorderSizePixel = 0
+			badge.Font = Enum.Font.GothamBold
+			badge.TextSize = 10
+			badge.TextColor3 = T.SubText
+			badge.Text = keyText
+			badge.ZIndex = 3
+			badge.Parent = row
+			corner(badge, 5)
+			stroke(badge, T.Stroke, 1)
+			local bp = Instance.new("UIPadding", badge)
+			bp.PaddingLeft = UDim.new(0, 7)
+			bp.PaddingRight = UDim.new(0, 7)
+		end
+
+		local hit = hitButton(row)
+		hoverRow(row, hit)
 		hit.MouseButton1Click:Connect(function()
 			ripple(row)
 			setter(not getter())
@@ -2406,136 +2664,145 @@ do
 			end
 			prev = on
 			tw(track, { BackgroundColor3 = on and T.Accent or T.Off }, 0.22)
-			tw(knob, { Position = on and UDim2.new(0, 25, 0.5, 0) or UDim2.new(0, 3, 0.5, 0) }, 0.3, Enum.EasingStyle.Back)
+			tw(knob, { Position = on and UDim2.new(0, 21, 0.5, 0) or UDim2.new(0, 3, 0.5, 0) }, 0.28, Enum.EasingStyle.Back)
 		end)
 		register(row, text)
 	end
 
-	local function makeButton(text, callback, danger)
-		local row, st = makeRow(46)
-		local l = rowLabel(row, text, 50)
-		if danger then l.TextColor3 = T.Danger end
-		local arrow = newLabel(row, "›", 22, T.SubText, Enum.Font.GothamBold)
-		arrow.AnchorPoint = Vector2.new(1, 0.5)
-		arrow.Position = UDim2.new(1, -16, 0.5, -1)
-		arrow.Size = UDim2.new(0, 20, 1, 0)
-		arrow.TextXAlignment = Enum.TextXAlignment.Right
-		arrow.ZIndex = 3
-		local hit = Instance.new("TextButton")
-		hit.BackgroundTransparency = 1
-		hit.Size = UDim2.new(1, 0, 1, 0)
-		hit.Text = ""
-		hit.ZIndex = 5
-		hit.Parent = row
-		hoverRow(row, st, hit)
-		hit.MouseEnter:Connect(function() tw(arrow, { Position = UDim2.new(1, -10, 0.5, -1), TextColor3 = T.Accent }, 0.18) end)
-		hit.MouseLeave:Connect(function() tw(arrow, { Position = UDim2.new(1, -16, 0.5, -1), TextColor3 = T.SubText }, 0.18) end)
-		hit.MouseButton1Click:Connect(function()
-			ripple(row)
-			callback()
-		end)
-		register(row, (text:gsub("%s+%[.-%]", "")))
+	local function smallBtn(parent, text, xOff)
+		local b = Instance.new("TextButton")
+		b.AnchorPoint = Vector2.new(1, 0.5)
+		b.Position = UDim2.new(1, xOff, 0.5, 0)
+		b.Size = UDim2.new(0, 20, 0, 22)
+		b.BackgroundColor3 = T.Bg
+		b.BorderSizePixel = 0
+		b.AutoButtonColor = false
+		b.Font = Enum.Font.GothamBold
+		b.TextSize = 13
+		b.TextColor3 = T.Text
+		b.Text = text
+		b.ZIndex = 4
+		b.Parent = parent
+		corner(b, 6)
+		local s = stroke(b, T.Stroke, 1)
+		b.MouseEnter:Connect(function() tw(s, { Color = T.Accent }, 0.12) end)
+		b.MouseLeave:Connect(function() tw(s, { Color = T.Stroke }, 0.15) end)
+		return b
 	end
 
-	local function makeBox(parent, w, h, font, size)
+	local function makeBox(parent, w, h, size)
 		local box = Instance.new("TextBox")
-		box.AnchorPoint = Vector2.new(1, 0.5)
 		box.Size = UDim2.new(0, w, 0, h)
 		box.BackgroundColor3 = T.Bg
 		box.BorderSizePixel = 0
-		box.Font = font or Enum.Font.GothamBold
-		box.TextSize = size or 14
+		box.Font = Enum.Font.GothamBold
+		box.TextSize = size or 12
 		box.TextColor3 = T.Text
 		box.ClearTextOnFocus = false
 		box.ZIndex = 4
 		box.Parent = parent
-		corner(box, 8)
+		corner(box, 6)
 		local st = stroke(box, T.Stroke, 1)
-		box.Focused:Connect(function() tw(st, { Color = T.Accent, Thickness = 1.5 }, 0.15) end)
-		box.FocusLost:Connect(function() tw(st, { Color = T.Stroke, Thickness = 1 }, 0.2) end)
+		box.Focused:Connect(function() tw(st, { Color = T.Accent }, 0.15) end)
+		box.FocusLost:Connect(function() tw(st, { Color = T.Stroke }, 0.2) end)
 		return box
 	end
 
-	local function makeInputBox(text, getter, setter)
-		local row, st = makeRow(48)
-		rowLabel(row, text, 160)
-		local box = makeBox(row, 124, 30)
-		box.Position = UDim2.new(1, -14, 0.5, 0)
-		hoverRow(row, st, row)
-		table.insert(refreshers, function() box.Text = fmt(getter()) end)
-		box.FocusLost:Connect(function()
-			local v = tonumber(box.Text)
-			if v then setter(v) else refreshUI() end
-		end)
-		register(row, text)
-	end
+	-- valeur modifiable : [-] [valeur] [+] (+ curseur si smin/smax) ; la case et les boutons n'ont aucune limite
+	local function makeStepper(text, getter, setter, step, smin, smax)
+		local hasSlider = smin ~= nil
+		local row = addRow(30)
+		local lbl = rowLabel(row, text, hasSlider and UDim2.new(0, 80, 1, 0) or UDim2.new(1, -112, 1, 0))
 
-	local function makeSlider(text, min, max, getter, setter)
-		local row, st = makeRow(70)
-		local lbl = rowLabel(row, text, 150)
-		lbl.Size = UDim2.new(1, -150, 0, 44)
-		local box = makeBox(row, 108, 28, Enum.Font.GothamBold, 13)
-		box.Position = UDim2.new(1, -14, 0, 22)
+		local plus = smallBtn(row, "+", -2)
+		local minus = smallBtn(row, "−", -26)
+		local box = makeBox(row, 44, 22, 11)
+		box.AnchorPoint = Vector2.new(1, 0.5)
+		box.Position = UDim2.new(1, -50, 0.5, 0)
 
-		local hit = Instance.new("Frame")
-		hit.BackgroundTransparency = 1
-		hit.Position = UDim2.new(0, 16, 0, 44)
-		hit.Size = UDim2.new(1, -32, 0, 22)
-		hit.Active = true
-		hit.ZIndex = 4
-		hit.Parent = row
-		local track = Instance.new("Frame")
-		track.Position = UDim2.new(0, 0, 0.5, -3)
-		track.Size = UDim2.new(1, 0, 0, 6)
-		track.BackgroundColor3 = T.Off
-		track.BorderSizePixel = 0
-		track.ZIndex = 4
-		track.Parent = hit
-		corner(track, 3)
-		local fill = Instance.new("Frame")
-		fill.Size = UDim2.new(0, 0, 1, 0)
-		fill.BackgroundColor3 = T.Accent
-		fill.BorderSizePixel = 0
-		fill.ZIndex = 5
-		fill.Parent = track
-		corner(fill, 3)
-		accentGradient(fill, 0)
-		local knob = Instance.new("Frame")
-		knob.AnchorPoint = Vector2.new(0.5, 0.5)
-		knob.Position = UDim2.new(1, 0, 0.5, 0)
-		knob.Size = UDim2.new(0, 14, 0, 14)
-		knob.BackgroundColor3 = Color3.new(1, 1, 1)
-		knob.BorderSizePixel = 0
-		knob.ZIndex = 6
-		knob.Parent = fill
-		knob:SetAttribute("keep", true)
-		corner(knob, 7)
-
-		local dragging = false
-		local function setFromX(x)
-			local rel = math.clamp((x - hit.AbsolutePosition.X) / hit.AbsoluteSize.X, 0, 1)
-			setter(min + (max - min) * rel)
+		local function hold(btn, dir)
+			btn.MouseButton1Down:Connect(function()
+				ripple(row)
+				local token = {}
+				btn:SetAttribute("tok", tostring(token))
+				local my = tostring(token)
+				setter(getter() + dir * step)
+				task.delay(0.4, function()
+					while btn:GetAttribute("tok") == my do
+						setter(getter() + dir * step)
+						task.wait(0.06)
+					end
+				end)
+			end)
+			local function stop() btn:SetAttribute("tok", "") end
+			btn.MouseButton1Up:Connect(stop)
+			btn.MouseLeave:Connect(stop)
 		end
-		hit.InputBegan:Connect(function(input)
-			if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-				dragging = true
-				tw(knob, { Size = UDim2.new(0, 20, 0, 20) }, 0.15, Enum.EasingStyle.Back)
-				setFromX(input.Position.X)
+		hold(plus, 1)
+		hold(minus, -1)
+
+		local fill
+		if hasSlider then
+			local hit = Instance.new("Frame")
+			hit.BackgroundTransparency = 1
+			hit.Position = UDim2.new(0, 84, 0, 0)
+			hit.Size = UDim2.new(1, -(84 + 104), 1, 0)
+			hit.Active = true
+			hit.ZIndex = 4
+			hit.Parent = row
+			local track = Instance.new("Frame")
+			track.Position = UDim2.new(0, 0, 0.5, -2)
+			track.Size = UDim2.new(1, 0, 0, 4)
+			track.BackgroundColor3 = T.Off
+			track.BorderSizePixel = 0
+			track.ZIndex = 4
+			track.Parent = hit
+			corner(track, 2)
+			fill = Instance.new("Frame")
+			fill.Size = UDim2.new(0, 0, 1, 0)
+			fill.BackgroundColor3 = Color3.new(1, 1, 1)
+			fill.BorderSizePixel = 0
+			fill.ZIndex = 5
+			fill.Parent = track
+			corner(fill, 2)
+			accentGradient(fill, 0)
+			local knob = Instance.new("Frame")
+			knob.AnchorPoint = Vector2.new(0.5, 0.5)
+			knob.Position = UDim2.new(1, 0, 0.5, 0)
+			knob.Size = UDim2.new(0, 10, 0, 10)
+			knob.BackgroundColor3 = Color3.new(1, 1, 1)
+			knob.BorderSizePixel = 0
+			knob.ZIndex = 6
+			knob.Parent = fill
+			knob:SetAttribute("keep", true)
+			corner(knob, 5)
+
+			local dragging = false
+			local function setFromX(x)
+				local rel = math.clamp((x - hit.AbsolutePosition.X) / math.max(hit.AbsoluteSize.X, 1), 0, 1)
+				local v = smin + (smax - smin) * rel
+				if step < 1 then v = math.floor(v / step + 0.5) * step else v = math.floor(v + 0.5) end
+				setter(v)
 			end
-		end)
-		hit.MouseEnter:Connect(function() if not dragging then tw(knob, { Size = UDim2.new(0, 18, 0, 18) }, 0.15) end end)
-		hit.MouseLeave:Connect(function() if not dragging then tw(knob, { Size = UDim2.new(0, 14, 0, 14) }, 0.15) end end)
-		UIS.InputChanged:Connect(function(input)
-			if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-				setFromX(input.Position.X)
-			end
-		end)
-		UIS.InputEnded:Connect(function(input)
-			if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
-				dragging = false
-				tw(knob, { Size = UDim2.new(0, 14, 0, 14) }, 0.2)
-			end
-		end)
+			hit.InputBegan:Connect(function(input)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+					dragging = true
+					tw(knob, { Size = UDim2.new(0, 15, 0, 15) }, 0.15, Enum.EasingStyle.Back)
+					setFromX(input.Position.X)
+				end
+			end)
+			UIS.InputChanged:Connect(function(input)
+				if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+					setFromX(input.Position.X)
+				end
+			end)
+			UIS.InputEnded:Connect(function(input)
+				if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+					dragging = false
+					tw(knob, { Size = UDim2.new(0, 10, 0, 10) }, 0.2)
+				end
+			end)
+		end
 
 		box.FocusLost:Connect(function()
 			local v = tonumber(box.Text)
@@ -2544,36 +2811,54 @@ do
 		table.insert(refreshers, function()
 			local v = getter()
 			box.Text = fmt(v)
-			tw(fill, { Size = UDim2.new(math.clamp((v - min) / (max - min), 0, 1), 0, 1, 0) }, 0.12)
+			if fill then
+				tw(fill, { Size = UDim2.new(math.clamp((v - smin) / (smax - smin), 0, 1), 0, 1, 0) }, 0.12)
+			end
 		end)
 		register(row, text)
 	end
 
+	local function makeButton(text, callback, danger)
+		local row = addRow(28)
+		row.BackgroundColor3 = T.CardHover
+		row.BackgroundTransparency = 0.45
+		local l = rowLabel(row, text, UDim2.new(1, -8, 1, 0))
+		l.TextXAlignment = Enum.TextXAlignment.Center
+		if danger then l.TextColor3 = T.Danger end
+		local hit = hitButton(row)
+		hit.MouseEnter:Connect(function() tw(row, { BackgroundTransparency = 0.15 }, 0.12) end)
+		hit.MouseLeave:Connect(function() tw(row, { BackgroundTransparency = 0.45 }, 0.18) end)
+		hit.MouseButton1Click:Connect(function()
+			ripple(row)
+			callback()
+		end)
+		register(row, (text:gsub("%s+%[.-%]", "")))
+	end
+
 	local function makeTextAction(text, placeholder, buttonText, callback)
-		local row, st = makeRow(48)
-		local lbl = rowLabel(row, text, 0)
-		lbl.Size = UDim2.new(0.3, 0, 1, 0)
-		local box = makeBox(row, 0, 30, Enum.Font.GothamMedium, 13)
-		box.Size = UDim2.new(0.4, 0, 0, 30)
-		box.Position = UDim2.new(1, -104, 0.5, 0)
-		box.PlaceholderText = placeholder
+		local row = addRow(30)
+		local box = makeBox(row, 0, 24, 11)
+		box.Font = Enum.Font.GothamMedium
+		box.AnchorPoint = Vector2.new(0, 0.5)
+		box.Size = UDim2.new(1, -64, 0, 24)
+		box.Position = UDim2.new(0, 0, 0.5, 0)
+		box.PlaceholderText = text .. " (" .. placeholder .. ")"
 		box.PlaceholderColor3 = T.SubText
 		box.Text = ""
 		local btn = Instance.new("TextButton")
 		btn.AnchorPoint = Vector2.new(1, 0.5)
-		btn.Position = UDim2.new(1, -14, 0.5, 0)
-		btn.Size = UDim2.new(0, 80, 0, 30)
+		btn.Position = UDim2.new(1, 0, 0.5, 0)
+		btn.Size = UDim2.new(0, 58, 0, 24)
 		btn.BackgroundColor3 = T.Accent
 		btn.BorderSizePixel = 0
 		btn.AutoButtonColor = true
 		btn.Font = Enum.Font.GothamBold
-		btn.TextSize = 13
-		btn.TextColor3 = T.Dark
+		btn.TextSize = 12
+		btn.TextColor3 = Color3.new(1, 1, 1)
 		btn.Text = buttonText
 		btn.ZIndex = 4
 		btn.Parent = row
-		corner(btn, 8)
-		hoverRow(row, st, row)
+		corner(btn, 6)
 		btn.MouseButton1Click:Connect(function()
 			ripple(row)
 			callback(box.Text)
@@ -2583,67 +2868,62 @@ do
 	end
 
 	local function makeSegment(text, options, getter, setter)
-		local row, st = makeRow(48)
-		rowLabel(row, text, 380)
-		hoverRow(row, st, row)
+		local row = addRow(50)
+		local l = newLabel(row, text, 11, T.SubText, Enum.Font.GothamMedium)
+		l.Position = UDim2.new(0, 4, 0, 0)
+		l.Size = UDim2.new(1, -8, 0, 18)
 		local holder = Instance.new("Frame")
 		holder.BackgroundTransparency = 1
-		holder.AnchorPoint = Vector2.new(1, 0.5)
-		holder.Position = UDim2.new(1, -12, 0.5, 0)
-		holder.Size = UDim2.new(0, 0, 0, 30)
-		holder.AutomaticSize = Enum.AutomaticSize.X
+		holder.Position = UDim2.new(0, 0, 0, 20)
+		holder.Size = UDim2.new(1, 0, 0, 26)
 		holder.ZIndex = 3
 		holder.Parent = row
 		local hl = Instance.new("UIListLayout", holder)
 		hl.FillDirection = Enum.FillDirection.Horizontal
-		hl.Padding = UDim.new(0, 6)
-		hl.VerticalAlignment = Enum.VerticalAlignment.Center
+		hl.Padding = UDim.new(0, 4)
+		local n = #options
 		local btns = {}
 		for _, opt in ipairs(options) do
 			local b = Instance.new("TextButton")
-			b.Size = UDim2.new(0, 0, 0, 30)
-			b.AutomaticSize = Enum.AutomaticSize.X
+			b.Size = UDim2.new(1 / n, -4 * (n - 1) / n, 1, 0)
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
 			b.Font = Enum.Font.GothamMedium
-			b.TextSize = 13
+			b.TextSize = 12
 			b.Text = opt[1]
 			b.ZIndex = 4
 			b.Parent = holder
-			corner(b, 8)
-			local p = Instance.new("UIPadding", b)
-			p.PaddingLeft = UDim.new(0, 13)
-			p.PaddingRight = UDim.new(0, 13)
-			b.MouseButton1Click:Connect(function() setter(opt[2]) end)
+			corner(b, 7)
+			b.MouseButton1Click:Connect(function() ripple(row); setter(opt[2]) end)
 			btns[opt[2]] = b
 		end
 		table.insert(refreshers, function()
 			local cur = getter()
 			for val, b in pairs(btns) do
 				local on = (val == cur)
-				tw(b, { BackgroundColor3 = on and T.Accent or T.Bg, TextColor3 = on and T.Dark or T.Text }, 0.2)
+				tw(b, { BackgroundColor3 = on and T.Accent or T.Bg, TextColor3 = on and Color3.new(1, 1, 1) or T.SubText }, 0.2)
 			end
 		end)
 		register(row, text)
 	end
 
 	local function makeSwatches(text, colors, onPick)
-		local row, st = makeRow(48)
-		rowLabel(row, text, 300)
-		hoverRow(row, st, row)
+		local row = addRow(50)
+		local l = newLabel(row, text, 11, T.SubText, Enum.Font.GothamMedium)
+		l.Position = UDim2.new(0, 4, 0, 0)
+		l.Size = UDim2.new(1, -8, 0, 18)
 		local holder = Instance.new("Frame")
 		holder.BackgroundTransparency = 1
-		holder.AnchorPoint = Vector2.new(1, 0.5)
-		holder.Position = UDim2.new(1, -14, 0.5, 0)
-		holder.Size = UDim2.new(0, #colors * 32, 0, 26)
+		holder.Position = UDim2.new(0, 2, 0, 22)
+		holder.Size = UDim2.new(1, -4, 0, 24)
 		holder.ZIndex = 3
 		holder.Parent = row
-		local l = Instance.new("UIListLayout", holder)
-		l.FillDirection = Enum.FillDirection.Horizontal
-		l.Padding = UDim.new(0, 6)
+		local ll = Instance.new("UIListLayout", holder)
+		ll.FillDirection = Enum.FillDirection.Horizontal
+		ll.Padding = UDim.new(0, 6)
 		for _, c in ipairs(colors) do
 			local b = Instance.new("TextButton")
-			b.Size = UDim2.new(0, 26, 0, 26)
+			b.Size = UDim2.new(0, 24, 0, 24)
 			b.BackgroundColor3 = c
 			b.BorderSizePixel = 0
 			b.Text = ""
@@ -2651,10 +2931,9 @@ do
 			b.ZIndex = 4
 			b:SetAttribute("keep", true)
 			b.Parent = holder
-			corner(b, 13)
+			corner(b, 12)
 			local bs = stroke(b, Color3.new(1, 1, 1), 0)
 			bs.Transparency = 0.2
-			b:SetAttribute("keep", true)
 			b.MouseEnter:Connect(function() tw(bs, { Thickness = 2 }, 0.12) end)
 			b.MouseLeave:Connect(function() tw(bs, { Thickness = 0 }, 0.12) end)
 			b.MouseButton1Click:Connect(function() onPick(c) end)
@@ -2664,351 +2943,207 @@ do
 
 	local function keyLabel(keys) return keys[1].Name end
 
-	----------------------------------------------------------------
-	-- Pages, onglets (barre latérale) et sous-onglets
-	----------------------------------------------------------------
-	local function makeSection(text)
-		local l = newLabel(V.nav, text, 11, T.SubText, Enum.Font.GothamBold)
-		l.Position = UDim2.new(0, 18, 0, N.y + 6)
-		l.Size = UDim2.new(1, -36, 0, 16)
-		l.ZIndex = 4
-		table.insert(N.sections, l)
-		N.y += 30
+	-- raccourcis pour les valeurs de Config
+	local function cfgToggle(text, tbl, key, keyText, after)
+		makeToggle(text, function() return tbl[key] end,
+			function(v) tbl[key] = v; if after then after(v) end; refreshUI() end, keyText)
 	end
-
-	local function makePage(name, icon, desc)
-		local pg = { name = name, tabs = {}, tabOrder = {}, navY = N.y, barW = 4 }
-
-		local item = Instance.new("TextButton")
-		item.Name = "Nav_" .. name
-		item.Position = UDim2.new(0, 10, 0, N.y)
-		item.Size = UDim2.new(1, -20, 0, 40)
-		item.BackgroundTransparency = 1
-		item.AutoButtonColor = false
-		item.Text = ""
-		item.ZIndex = 5
-		item.Parent = V.nav
-		local ic = Instance.new("TextLabel")
-		ic.BackgroundTransparency = 1
-		ic.Position = UDim2.new(0, 0, 0, 0)
-		ic.Size = UDim2.new(0, 46, 1, 0)
-		ic.Font = Enum.Font.GothamMedium
-		ic.TextSize = 18
-		ic.TextColor3 = T.Text
-		ic.TextTransparency = 0.4
-		ic.Text = icon
-		ic.ZIndex = 6
-		ic.Parent = item
-		local tx = newLabel(item, name, 14, T.SubText, Enum.Font.GothamMedium)
-		tx.Position = UDim2.new(0, 46, 0, 0)
-		tx.Size = UDim2.new(1, -50, 1, 0)
-		tx.ZIndex = 6
-		tx.TextTruncate = Enum.TextTruncate.AtEnd
-		item.MouseEnter:Connect(function()
-			if N.page ~= name then tw(tx, { TextColor3 = T.Text }, 0.12) end
-		end)
-		item.MouseLeave:Connect(function()
-			if N.page ~= name then tw(tx, { TextColor3 = T.SubText }, 0.12) end
-		end)
-		item.MouseButton1Click:Connect(function() N.selectPage(name) end)
-		pg.item, pg.txt, pg.icon = item, tx, ic
-		N.y += 44
-
-		local holder = Instance.new("Frame")
-		holder.Name = "Page_" .. name
-		holder.BackgroundTransparency = 1
-		holder.Size = UDim2.new(1, 0, 1, 0)
-		holder.Visible = false
-		holder.ZIndex = 2
-		holder.Parent = V.content
-		pg.holder = holder
-
-		local title = newLabel(holder, name, 26, T.Text, Enum.Font.GothamBold)
-		title.Position = UDim2.new(0, 28, 0, 16)
-		title.Size = UDim2.new(1, -56, 0, 32)
-		local d = newLabel(holder, desc or "", 13, T.SubText, Enum.Font.Gotham)
-		d.Position = UDim2.new(0, 28, 0, 48)
-		d.Size = UDim2.new(1, -56, 0, 18)
-		d.TextTruncate = Enum.TextTruncate.AtEnd
-
-		local bar = Instance.new("Frame")
-		bar.Position = UDim2.new(0, 28, 0, 80)
-		bar.Size = UDim2.new(0, 10, 0, 38)
-		bar.BackgroundColor3 = T.Card
-		bar.BorderSizePixel = 0
-		bar.ZIndex = 3
-		bar.Parent = holder
-		corner(bar, 11)
-		stroke(bar, T.Stroke, 1)
-		local ind = Instance.new("Frame")
-		ind.BackgroundColor3 = T.Accent
-		ind.BackgroundTransparency = 0.82
-		ind.BorderSizePixel = 0
-		ind.ZIndex = 3
-		ind.Parent = bar
-		corner(ind, 8)
-		stroke(ind, T.Accent, 1).Transparency = 0.55
-		pg.bar, pg.ind = bar, ind
-
-		local area = Instance.new("CanvasGroup")
-		area.BackgroundTransparency = 1
-		area.BorderSizePixel = 0
-		area.ZIndex = 2
-		area.Parent = holder
-		pg.area = area
-		pg.areaBase = UDim2.new(0, 28, 0, 130)
-		area.Position = pg.areaBase
-		area.Size = UDim2.new(1, -56, 1, -130)
-
-		N.pages[name] = pg
-		table.insert(N.order, name)
-		N.cur = pg
-		return pg
+	local function cfgStep(text, tbl, key, step, smin, smax, after)
+		makeStepper(text, function() return tbl[key] end,
+			function(v) tbl[key] = v; if after then after(v) end; refreshUI() end, step, smin, smax)
 	end
-
-	local function makeTab(name)
-		local pg = N.cur
-		pg.active_build = name
-
-		local sf = Instance.new("ScrollingFrame")
-		sf.Name = "Tab_" .. name
-		sf.Size = UDim2.new(1, 0, 1, 0)
-		sf.BackgroundTransparency = 1
-		sf.BorderSizePixel = 0
-		sf.CanvasSize = UDim2.new()
-		sf.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		sf.ScrollBarThickness = 4
-		sf.ScrollBarImageColor3 = T.Accent
-		sf.Visible = false
-		sf.ZIndex = 2
-		sf.Parent = pg.area
-		local pd = Instance.new("UIPadding", sf)
-		pd.PaddingTop = UDim.new(0, 4)
-		pd.PaddingBottom = UDim.new(0, 20)
-		pd.PaddingRight = UDim.new(0, 8)
-		local ll = Instance.new("UIListLayout", sf)
-		ll.Padding = UDim.new(0, 8)
-		ll.SortOrder = Enum.SortOrder.LayoutOrder
-
-		local w = TextService:GetTextSize(name, 13, Enum.Font.GothamMedium, Vector2.new(400, 30)).X + 30
-		local btn = Instance.new("TextButton")
-		btn.Position = UDim2.new(0, pg.barW, 0, 4)
-		btn.Size = UDim2.new(0, w, 1, -8)
-		btn.BackgroundTransparency = 1
-		btn.AutoButtonColor = false
-		btn.Font = Enum.Font.GothamMedium
-		btn.TextSize = 13
-		btn.TextColor3 = T.SubText
-		btn.Text = name
-		btn.ZIndex = 5
-		btn.Parent = pg.bar
-		btn.MouseEnter:Connect(function()
-			if pg.active ~= name then tw(btn, { TextColor3 = T.Text }, 0.12) end
-		end)
-		btn.MouseLeave:Connect(function()
-			if pg.active ~= name then tw(btn, { TextColor3 = T.SubText }, 0.12) end
-		end)
-		btn.MouseButton1Click:Connect(function() N.showTab(pg, name) end)
-
-		pg.tabs[name] = { sf = sf, btn = btn, x = pg.barW, w = w }
-		table.insert(pg.tabOrder, name)
-		pg.barW += w + 4
-		pg.bar.Size = UDim2.new(0, pg.barW, 0, 38)
-
-		N.scroll = sf
-		N.ord = 0
-	end
+	local function both(key, v) Config.Aimbot[key] = v; Config.SilentAim[key] = v end
+	local function espAfter() if Config.ESP.Enabled then refreshESP() end end
+	local PARTS = { { "Tête", "Head" }, { "Torse", "HumanoidRootPart" } }
 
 	----------------------------------------------------------------
-	-- Contenu des pages
+	-- Contenu : toutes les cartes
 	----------------------------------------------------------------
-	makeSection("JOUEUR")
-
-	makePage("Mouvement", "🏃", "Vol, vitesse, saut et nage")
-	makeTab("Vol")
-	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, keyLabel(Config.Keys.Fly))
-	makeToggle("Fly : le véhicule vole (sinon éjecté)", function() return Config.Fly.VehicleMode end, setFlyVehicle)
+	makeCard("Général", "★", { "Home", "Movement" })
 	makeToggle("Noclip", function() return Config.Noclip.Enabled end, setNoclip, keyLabel(Config.Keys.Noclip))
 	makeToggle("Saut infini", function() return Config.InfJump.Enabled end, setInfJump, keyLabel(Config.Keys.InfJump))
-	makeInputBox("Vitesse de vol (sans limite)", function() return Config.Fly.Speed end, setFlySpeed)
-	makeTab("Vitesse")
-	makeToggle("Walkspeed perso", function() return Config.Walk.Enabled end, setWalkEnabled)
-	makeInputBox("Walkspeed (sans limite)", function() return Config.Walk.Speed end, setWalkSpeed)
-	makeToggle("Jump perso", function() return Config.Jump.Enabled end, setJumpEnabled)
-	makeSlider("Jump Power (case = sans limite)", Config.Jump.Min, Config.Jump.Max, function() return Config.Jump.Power end, setJumpPower)
-	makeTab("Nage")
-	makeToggle("Vitesse de nage perso", function() return Config.Swim.Enabled end, setSwimEnabled)
-	makeInputBox("Vitesse de nage (sans limite)", function() return Config.Swim.Speed end, setSwimSpeed)
-	makeNote("La nage utilise une détection d'eau du Terrain : elle fonctionne même si le jeu gère des ragdolls.")
+	makeToggle("Walk Speed perso", function() return Config.Walk.Enabled end, setWalkEnabled)
+	makeStepper("Walk Speed", function() return Config.Walk.Speed end, setWalkSpeed, Config.Walk.Step, 0, 200)
+	makeToggle("Jump Power perso", function() return Config.Jump.Enabled end, setJumpEnabled)
+	makeStepper("Jump Power", function() return Config.Jump.Power end, setJumpPower, Config.Jump.Step, Config.Jump.Min, Config.Jump.Max)
+	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, "Alt")
+	makeStepper("Fly Speed", function() return Config.Fly.Speed end, setFlySpeed, Config.Fly.Step, 0, 300)
+	cfgToggle("Fly Noclip", Config.Fly, "Noclip")
+	cfgToggle("Fly Invisible", Config.Fly, "Invisible")
+	makeToggle("Vehicle Mode", function() return Config.Fly.VehicleMode end, setFlyVehicle)
 
-	makePage("Téléportation", "📍", "Se déplacer, observer et ramener les joueurs")
-	makeTab("Téléport")
-	makeToggle("Click TP (Shift + clic)", function() return Config.TP.ClickTP end, setClickTP, keyLabel(Config.Keys.ClickTP))
-	makeTextAction("TP à un joueur", "nom (ou début)", "TP", tpByName)
-	makeButton("TP au joueur suivant   [PgDn]", function() tpCycle(1) end)
-	makeButton("TP au joueur précédent   [PgUp]", function() tpCycle(-1) end)
-	makeTab("Positions")
-	makeButton("Sauvegarder la position   [Insert]", function() savePosition(); U.notify("Position sauvegardée") end)
-	makeButton("Retourner à la position   [Delete]", function() loadPosition(); U.notify("Retour à la position") end)
-	makeButton("TP au spawn", tpSpawn)
-	makeTab("Observer")
-	makeTextAction("View un joueur", "nom (ou début)", "View", function(t)
+	makeCard("Nage", "≈", { "Home", "Movement" })
+	makeToggle("Vitesse de nage perso", function() return Config.Swim.Enabled end, setSwimEnabled)
+	makeStepper("Swim Speed", function() return Config.Swim.Speed end, setSwimSpeed, Config.Swim.Step, 0, 300)
+	makeNote("Détection d'eau + vélocité : marche même avec les ragdolls du jeu.")
+
+	makeCard("Combat", "◎", { "Home", "Combat" })
+	makeToggle("Aimbot", function() return Config.Aimbot.Enabled end, setAimbot, keyLabel(Config.Keys.Aimbot))
+	makeToggle("Silent Aim", function() return Config.SilentAim.Enabled end, setSilent, keyLabel(Config.Keys.SilentAim))
+	makeToggle("Auto Fire", function() return Config.FastMod.AutoFire end, setAutoFire, keyLabel(Config.Keys.AutoFire))
+	makeSub("Aimbot Settings")
+	makeStepper("FOV", function() return Config.Aimbot.FOV end, function(v) both("FOV", v); refreshUI() end, 10, 0, 1000)
+	makeStepper("Smoothness", function() return Config.Aimbot.Smoothness end,
+		function(v) Config.Aimbot.Smoothness = v; refreshUI() end, 0.05, 0.01, 1)
+	makeSegment("Target Part", PARTS, function() return Config.Aimbot.TargetPart end,
+		function(v) both("TargetPart", v); refreshUI() end)
+	makeToggle("Team Check", function() return Config.Aimbot.TeamCheck end, function(v) both("TeamCheck", v); refreshUI() end)
+	makeToggle("Wall Check", function() return Config.Aimbot.WallCheck end, function(v) both("WallCheck", v); refreshUI() end)
+	makeToggle("Prediction", function() return Config.Aimbot.Prediction end, function(v) both("Prediction", v); refreshUI() end)
+
+	makeCard("Camlock", "⌖", { "Home", "Combat" })
+	makeToggle("Camlock", function() return Config.Camlock.Enabled end, setCamlock, keyLabel(Config.Keys.Camlock))
+	makeButton("Verrouiller le joueur le plus proche", function()
+		local p = camState.lockNearest()
+		Config.Camlock.Enabled = true
+		refreshUI()
+		U.notify(p and ("Camlock : " .. p.Name) or "Aucune cible")
+	end)
+	makeSub("Camlock Settings")
+	cfgStep("Smoothness", Config.Camlock, "Smoothness", 0.05, 0.01, 1)
+	makeSegment("Target Part", PARTS, function() return Config.Camlock.TargetPart end,
+		function(v) Config.Camlock.TargetPart = v; refreshUI() end)
+	cfgToggle("Garder la cible (Sticky)", Config.Camlock, "Sticky")
+	cfgToggle("Prediction", Config.Camlock, "Prediction")
+	cfgToggle("Wall Check", Config.Camlock, "WallCheck")
+	cfgToggle("Team Check", Config.Camlock, "TeamCheck")
+	cfgStep("Portée écran (px)", Config.Camlock, "FOV", 100, 0, 2000)
+	makeNote("Appuie sur C : la caméra se verrouille sur le joueur le plus proche du centre. Smoothness 1 = verrouillage total.")
+
+	makeCard("Rapid Fire", "ϟ", { "Home", "Combat" })
+	makeToggle("Rapid Fire", function() return Config.RapidFire.Enabled end, setRapidFire, keyLabel(Config.Keys.RapidFire))
+	makeStepper("Tirs / seconde", function() return Config.RapidFire.Rate end,
+		function(v) Config.RapidFire.Rate = math.max(v, 0); refreshUI() end, Config.RapidFire.Step, 1, 200)
+	cfgToggle("Maintenir le clic", Config.RapidFire, "HoldOnly")
+	makeNote("Arme en main + clic gauche maintenu. La valeur n'a pas de limite (60 tirs max par image pour ne pas figer le jeu).")
+
+	makeCard("ESP & Visuals", "👁", { "Home", "Visuals" })
+	makeToggle("ESP", function() return Config.ESP.Enabled end, setESP, keyLabel(Config.Keys.ESP))
+	cfgToggle("FOV Circle", Config.FOVCircle, "Show")
+	makeSub("ESP Settings")
+	makeSwatches("Fill Color", {
+		Color3.fromRGB(255, 60, 60), Color3.fromRGB(255, 150, 50), Color3.fromRGB(255, 220, 60), Color3.fromRGB(70, 220, 110),
+		Color3.fromRGB(60, 200, 255), Color3.fromRGB(80, 120, 255), Color3.fromRGB(190, 90, 255), Color3.fromRGB(255, 255, 255),
+	}, function(c) Config.ESP.FillColor = c; espAfter() end)
+	makeSwatches("Outline Color", {
+		Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 60, 60), Color3.fromRGB(255, 220, 60), Color3.fromRGB(70, 220, 110),
+		Color3.fromRGB(60, 200, 255), Color3.fromRGB(80, 120, 255), Color3.fromRGB(190, 90, 255), Color3.fromRGB(20, 20, 20),
+	}, function(c) Config.ESP.OutlineColor = c; espAfter() end)
+	cfgStep("Fill Transp.", Config.ESP, "FillTransparency", 0.1, 0, 1, espAfter)
+	cfgStep("Outline Transp.", Config.ESP, "OutlineTransparency", 0.1, 0, 1, espAfter)
+	cfgToggle("Show Names", Config.ESP, "ShowNames", nil, espAfter)
+	cfgToggle("Show Distance", Config.ESP, "ShowDistance", nil, espAfter)
+	cfgToggle("Team Check", Config.ESP, "TeamCheck", nil, espAfter)
+
+	makeCard("Client Bring", "⇲", { "Home", "Player" })
+	makeToggle("Bring", function() return Config.Bring.Enabled end, setBring, keyLabel(Config.Keys.Bring))
+	makeSegment("Cible", { { "Un joueur", "Player" }, { "Tous", "All" } }, function() return Config.Bring.Mode end, setBringMode)
+	makeTextAction("Bring un joueur", "nom", "Bring", function(t)
+		local p = bringPlayer(t)
+		U.notify(p and ("Bring : " .. p.Name) or "Joueur introuvable")
+	end)
+	makeSegment("Formation", { { "Ligne", "Line" }, { "Cercle", "Circle" }, { "Derrière", "Behind" }, { "Pile", "Stack" } },
+		function() return Config.Bring.Formation end, setBringFormation)
+	cfgStep("Distance", Config.Bring, "Distance", 2)
+	cfgStep("Hauteur", Config.Bring, "Height", 1)
+	cfgStep("Écart", Config.Bring, "Spacing", 1)
+	cfgToggle("Déplacement fluide", Config.Bring, "Smooth")
+	cfgStep("Vitesse fluide", Config.Bring, "SmoothSpeed", 0.05, 0.01, 1)
+	cfgToggle("Ils me regardent", Config.Bring, "FaceMe")
+	cfgToggle("Ignorer les assis", Config.Bring, "SkipSeated")
+	cfgToggle("Ignorer mon équipe", Config.Bring, "TeamCheck")
+	makeNote("Visuel côté client : les autres joueurs ne les voient pas bouger.")
+
+	makeCard("View Player", "◉", { "Home", "Player" })
+	makeTextAction("View un joueur", "nom", "View", function(t)
 		local p = findPlayerByName(t)
 		if p and viewPlayer(p) then U.notify("View : " .. p.Name) else U.notify("Joueur introuvable") end
 	end)
-	makeButton("View joueur suivant   [End]", function()
+	makeButton("View suivant   [End]", function()
 		local p = viewCycle(1)
 		U.notify(p and ("View : " .. p.Name) or "Aucun joueur")
 	end)
-	makeButton("View joueur précédent", function()
+	makeButton("View précédent", function()
 		local p = viewCycle(-1)
 		U.notify(p and ("View : " .. p.Name) or "Aucun joueur")
 	end)
 	makeButton("Arrêter le view   [Home]", function() stopView(); U.notify("View arrêté") end)
-	makeTab("Bring")
-	makeNote("Visuel côté client : tu vois les joueurs devant toi, mais ils ne bougent pas pour les autres.")
-	makeToggle("Client Bring", function() return Config.Bring.Enabled end, setBring, keyLabel(Config.Keys.Bring))
-	makeSegment("Cible", { { "Un joueur", "Player" }, { "Tous", "All" } },
-		function() return Config.Bring.Mode end, setBringMode)
-	makeTextAction("Bring un joueur", "nom (ou début)", "Bring", function(t)
-		local p = bringPlayer(t)
-		U.notify(p and ("Bring : " .. p.Name) or "Joueur introuvable")
-	end)
-	makeSegment("Formation", { { "Ligne", "Line" }, { "Cercle", "Circle" }, { "Derrière", "Behind" }, { "Empilés", "Stack" } },
-		function() return Config.Bring.Formation end, setBringFormation)
-	makeInputBox("Distance devant toi (studs)", function() return Config.Bring.Distance end,
-		function(v) Config.Bring.Distance = v; refreshUI() end)
-	makeInputBox("Hauteur", function() return Config.Bring.Height end,
-		function(v) Config.Bring.Height = v; refreshUI() end)
-	makeInputBox("Écart entre joueurs (studs)", function() return Config.Bring.Spacing end,
-		function(v) Config.Bring.Spacing = v; refreshUI() end)
-	makeToggle("Déplacement fluide", function() return Config.Bring.Smooth end,
-		function(v) Config.Bring.Smooth = v; refreshUI() end)
-	makeInputBox("Vitesse du fluide (0.01 à 1)", function() return Config.Bring.SmoothSpeed end,
-		function(v) Config.Bring.SmoothSpeed = v; refreshUI() end)
-	makeToggle("Ils me regardent", function() return Config.Bring.FaceMe end,
-		function(v) Config.Bring.FaceMe = v; refreshUI() end)
-	makeToggle("Ignorer les joueurs assis", function() return Config.Bring.SkipSeated end,
-		function(v) Config.Bring.SkipSeated = v; refreshUI() end)
-	makeToggle("Ignorer mon équipe (mode Tous)", function() return Config.Bring.TeamCheck end,
-		function(v) Config.Bring.TeamCheck = v; refreshUI() end)
 
-	makeSection("COMBAT")
+	makeCard("Téléportation", "📍", { "Home", "Teleport" })
+	makeToggle("Click TP (Shift + clic)", function() return Config.TP.ClickTP end, setClickTP, keyLabel(Config.Keys.ClickTP))
+	makeTextAction("TP à un joueur", "nom", "TP", tpByName)
+	makeButton("Joueur suivant   [PgDn]", function() tpCycle(1) end)
+	makeButton("Joueur précédent   [PgUp]", function() tpCycle(-1) end)
+	makeSub("Positions")
+	makeButton("Sauvegarder la position   [Insert]", function() savePosition(); U.notify("Position sauvegardée") end)
+	makeButton("Retourner à la position   [Delete]", function() loadPosition(); U.notify("Retour à la position") end)
+	makeButton("TP au spawn", tpSpawn)
 
-	makePage("Combat", "🎯", "Visée, ESP et réglages d'armes")
-	makeTab("Visée")
-	makeToggle("Aimbot", function() return Config.Aimbot.Enabled end, setAimbot, keyLabel(Config.Keys.Aimbot))
-	makeToggle("Silent Aim", function() return Config.SilentAim.Enabled end, setSilent, keyLabel(Config.Keys.SilentAim))
-	makeToggle("ESP", function() return Config.ESP.Enabled end, setESP, keyLabel(Config.Keys.ESP))
-	makeInputBox("FOV (Aimbot + Silent)", function() return Config.Aimbot.FOV end,
-		function(v) Config.Aimbot.FOV = v; Config.SilentAim.FOV = v; refreshUI() end)
-	makeTab("Armes")
-	makeToggle("Fast Mod", function() return Config.FastMod.Enabled end, setFastMod, keyLabel(Config.Keys.FastMod))
-	makeToggle("Tir auto", function() return Config.FastMod.AutoFire end, setAutoFire, keyLabel(Config.Keys.AutoFire))
-	makeSlider("Délai max Fast Mod (ms)", 0, 500, function() return math.floor(Config.FastMod.Delay * 1000 + 0.5) end, setFastDelayMs)
-	makeInputBox("Cadence du tir auto (s)", function() return Config.FastMod.AutoFireDelay end,
-		function(v) Config.FastMod.AutoFireDelay = v; refreshUI() end)
-	makeButton("Réappliquer le Fast Mod maintenant", function()
-		if Config.FastMod.Enabled then fastPatchAll(); U.notify("Fast Mod réappliqué") else U.notify("Active d'abord le Fast Mod") end
-	end)
-	makeTab("Fast Mod avancé")
-	makeToggle("Modifier les modules de l'arme", function() return Config.FastMod.PatchModules end,
-		function(v) Config.FastMod.PatchModules = v; refreshUI() end)
-	makeToggle("Surveiller les valeurs (anti-reset)", function() return Config.FastMod.Watch end,
-		function(v) Config.FastMod.Watch = v; refreshUI() end)
-	makeToggle("Animations d'attaque rapides", function() return Config.FastMod.AnimBoost end,
-		function(v) Config.FastMod.AnimBoost = v; refreshUI() end)
-	makeInputBox("Vitesse des animations (x)", function() return Config.FastMod.AnimSpeed end,
-		function(v) Config.FastMod.AnimSpeed = v; refreshUI() end)
-	makeInputBox("Valeur min des cadences", function() return Config.FastMod.RateValue end,
-		function(v) Config.FastMod.RateValue = v; refreshUI() end)
-	makeTextAction("Mot-clé délai", "ex: cooldown", "Ajouter", function(t)
+	makeCard("Fast Mod", "⚡", { "Home", "Combat" })
+	makeToggle("Enable Fast Mod", function() return Config.FastMod.Enabled end, setFastMod, keyLabel(Config.Keys.FastMod))
+	cfgToggle("Anim Boost", Config.FastMod, "AnimBoost")
+	makeSub("General Settings")
+	makeStepper("Delay (ms)", function() return math.floor(Config.FastMod.Delay * 1000 + 0.5) end, setFastDelayMs, 1, 0, 500)
+	cfgStep("Rate Value", Config.FastMod, "RateValue", 10, 0, 500)
+	cfgStep("Anim Speed (x)", Config.FastMod, "AnimSpeed", 0.5)
+	cfgToggle("Patch Backpack", Config.FastMod, "PatchBackpack")
+	cfgToggle("Patch Modules", Config.FastMod, "PatchModules")
+	cfgToggle("Watch Changes", Config.FastMod, "Watch")
+	makeTextAction("Mot-clé délai", "ex: cooldown", "Add", function(t)
 		U.notify(addFastKeyword(Config.FastMod.DelayKeywords, t) and "Mot-clé ajouté" or "Déjà présent ou vide")
 	end)
-	makeTextAction("Mot-clé cadence", "ex: rpm", "Ajouter", function(t)
+	makeTextAction("Mot-clé cadence", "ex: rpm", "Add", function(t)
 		U.notify(addFastKeyword(Config.FastMod.RateKeywords, t) and "Mot-clé ajouté" or "Déjà présent ou vide")
 	end)
+	makeButton("Réappliquer maintenant", function()
+		if Config.FastMod.Enabled then fastPatchAll(); U.notify("Fast Mod réappliqué") else U.notify("Active d'abord le Fast Mod") end
+	end)
 
-	makePage("Walk Fling", "💥", "Fling au contact et notifications de kill")
-	makeTab("Fling")
+	makeCard("Walk Fling", "✦", { "Home", "Combat", "Troll" })
 	makeToggle("Walk Fling", function() return Config.WalkFling.Enabled end, setWalkFling, keyLabel(Config.Keys.WalkFling))
-	makeToggle("Seulement près des joueurs",
-		function() return Config.WalkFling.OnlyNearPlayers end,
-		function(v) Config.WalkFling.OnlyNearPlayers = v; refreshUI() end)
-	makeInputBox("Portée du fling (studs)",
-		function() return Config.WalkFling.TriggerRange end,
-		function(v) Config.WalkFling.TriggerRange = v; refreshUI() end)
-	makeToggle("Retour auto à la position sûre",
-		function() return Config.WalkFling.SafeReturn end,
+	makeStepper("Power", function() return Config.WalkFling.Power end, setFlingPower, Config.WalkFling.Step,
+		Config.WalkFling.Min, Config.WalkFling.Max)
+	cfgToggle("Only Near Players", Config.WalkFling, "OnlyNearPlayers")
+	cfgStep("Trigger Range", Config.WalkFling, "TriggerRange", 1, 1, 50)
+	makeToggle("Safe Return", function() return Config.WalkFling.SafeReturn end,
 		function(v) Config.WalkFling.SafeReturn = v; if not v then lastSafeCF = nil end; refreshUI() end)
-	makeSlider("Puissance (case = sans limite)", Config.WalkFling.Min, Config.WalkFling.Max, function() return Config.WalkFling.Power end, setFlingPower)
-	makeNote("Touches , et . pour baisser / monter la puissance.")
-	makeTab("Kills")
-	makeToggle("Notifier mes kills (pseudo)", function() return Config.Kills.Enabled end,
-		function(v) Config.Kills.Enabled = v; refreshUI() end)
-	makeInputBox("Délai contact → mort (s)", function() return Config.Kills.Window end,
-		function(v) Config.Kills.Window = v; refreshUI() end)
+	cfgStep("Safe Return Dist.", Config.WalkFling, "SafeReturnDistance", 50, 50, 1000)
+	cfgToggle("Notifier mes kills", Config.Kills, "Enabled")
+	cfgStep("Délai contact → mort (s)", Config.Kills, "Window", 1)
+	makeNote("Touches , et . : puissance −/+. Fling uniquement au contact.")
 
-	makeSection("MONDE")
-
-	makePage("BTools", "🔨", "Boîte à outils de construction type F3X")
-	makeTab("Général")
-	makeNote("Déplacer, redimensionner, pivoter, couleur, matière, surfaces, lumières, effets, mesh, textures, soudures, physique, création. Tout se passe chez toi (côté client) : les autres joueurs ne voient pas les changements.")
+	makeCard("BTools", "🔨", { "Home", "BTools" })
 	makeToggle("BTools (ouvre le panneau)", function() return Config.BTools.Enabled end, function(v) BTf.setEnabled(v) end, keyLabel(Config.Keys.BTools))
-	makeToggle("Ignorer les joueurs et PNJ", function() return Config.BTools.IgnorePlayers end,
-		function(v) Config.BTools.IgnorePlayers = v; refreshUI() end)
-	makeToggle("Surbrillance au survol", function() return Config.BTools.ShowHover end,
-		function(v) Config.BTools.ShowHover = v; refreshUI() end)
-	makeToggle("Glisser les objets directement", function() return Config.BTools.FreeDrag end,
-		function(v) Config.BTools.FreeDrag = v; refreshUI() end)
-	makeInputBox("Pas de déplacement (studs)", function() return Config.BTools.MoveStep end,
-		function(v) Config.BTools.MoveStep = math.max(v, 0); refreshUI() end)
-	makeInputBox("Pas de taille (studs)", function() return Config.BTools.ResizeStep end,
-		function(v) Config.BTools.ResizeStep = math.max(v, 0); refreshUI() end)
-	makeInputBox("Pas de rotation (degrés)", function() return Config.BTools.RotateStep end,
-		function(v) Config.BTools.RotateStep = math.max(v, 0); refreshUI() end)
-	makeTab("Historique")
+	cfgToggle("Ignorer joueurs et PNJ", Config.BTools, "IgnorePlayers")
+	cfgToggle("Surbrillance au survol", Config.BTools, "ShowHover")
+	cfgToggle("Glisser directement", Config.BTools, "FreeDrag")
+	cfgStep("Pas de déplacement", Config.BTools, "MoveStep", 1, nil, nil, function() Config.BTools.MoveStep = math.max(Config.BTools.MoveStep, 0) end)
+	cfgStep("Pas de taille", Config.BTools, "ResizeStep", 1, nil, nil, function() Config.BTools.ResizeStep = math.max(Config.BTools.ResizeStep, 0) end)
+	cfgStep("Pas de rotation (°)", Config.BTools, "RotateStep", 5, nil, nil, function() Config.BTools.RotateStep = math.max(Config.BTools.RotateStep, 0) end)
+	makeSub("Historique")
 	makeButton("Annuler   [Ctrl+Z]", function() BTf.undo() end)
 	makeButton("Rétablir   [Ctrl+Y]", function() BTf.redo() end)
 	makeButton("Tout annuler", function() BTf.undoAll() end, true)
-	makeNote("Raccourcis : V = changer d'outil • Ctrl+Z / Ctrl+Y = annuler / rétablir • Ctrl+D = cloner • Retour arrière = supprimer. Clic = sélectionner, Ctrl+clic = multi-sélection, Shift+clic = modèle entier.")
+	makeNote("V = outil suivant • Ctrl+D = cloner • Retour arrière = supprimer • Ctrl+clic = multi-sélection • Shift+clic = modèle entier. Tout est client-side.")
 
-	makePage("Réglages", "⚙️", "Apparence de l'interface et extras")
-	makeTab("Apparence")
+	makeCard("Nextbot Spam", "☠", { "Home", "Misc", "Troll" })
+	makeButton("Spawn Nextbot (x1)", function() spawnLocalNextbot() end)
+	cfgStep("Speed", Config.NextbotSpam, "Speed", 5, 0, 200)
+
+	makeCard("Interface", "🎨", { "Home", "Settings" })
 	makeSwatches("Couleur d'accent", {
-		Color3.fromRGB(124, 108, 255), Color3.fromRGB(70, 150, 255), Color3.fromRGB(50, 210, 220),
-		Color3.fromRGB(60, 200, 120), Color3.fromRGB(255, 190, 60), Color3.fromRGB(255, 120, 70),
-		Color3.fromRGB(240, 80, 80), Color3.fromRGB(255, 95, 160),
+		Color3.fromRGB(36, 140, 255), Color3.fromRGB(124, 108, 255), Color3.fromRGB(50, 210, 220), Color3.fromRGB(60, 200, 120),
+		Color3.fromRGB(255, 190, 60), Color3.fromRGB(255, 120, 70), Color3.fromRGB(240, 80, 80), Color3.fromRGB(255, 95, 160),
 	}, function(c) U.setAccent(c) end)
-	makeToggle("Flou d'arrière-plan", function() return M.Blur end, function(v) M.Blur = v; U.updateFx(); refreshUI() end)
-	makeSlider("Intensité du flou", 0, 40, function() return M.BlurSize end,
-		function(v) M.BlurSize = math.clamp(math.floor(v), 0, 56); U.updateFx(); refreshUI() end)
-	makeToggle("Assombrir l'arrière-plan", function() return M.Dim end, function(v) M.Dim = v; U.updateFx(); refreshUI() end)
+	makeToggle("Blur Background", function() return M.Blur end, function(v) M.Blur = v; U.updateFx(); refreshUI() end)
+	makeStepper("Blur", function() return M.BlurSize end, function(v) M.BlurSize = math.max(math.floor(v), 0); U.updateFx(); refreshUI() end, 2, 0, 40)
+	makeStepper("Dim", function() return M.Dim end, function(v) M.Dim = math.clamp(v, 0, 1); U.updateFx(); refreshUI() end, 0.05, 0, 1)
 	makeToggle("Animations", function() return M.Animations end, function(v) M.Animations = v; refreshUI() end)
-	makeToggle("Bordure et barre animées", function() return M.AnimBorder end,
-		function(v) M.AnimBorder = v; U.setShimmer(v); refreshUI() end)
-	makeToggle("Notifications des boutons", function() return Config.Notify.Toggles end,
-		function(v) Config.Notify.Toggles = v; refreshUI() end)
-	makeButton("Réinitialiser la taille et la position", function() U.resetWindow() end)
-	makeTab("Nextbot")
-	makeButton("Spam Nextbot (spawn 1)", function() spawnLocalNextbot() end)
-	makeInputBox("Vitesse du Nextbot", function() return Config.NextbotSpam.Speed end,
-		function(v) Config.NextbotSpam.Speed = v; refreshUI() end)
+	makeToggle("Animated Border", function() return M.AnimBorder end, function(v) M.AnimBorder = v; U.setShimmer(v); refreshUI() end)
+	cfgToggle("Show Notifications", Config.Notify, "Toggles")
+	makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
+	makeNote("K ou Ctrl droit : cacher / afficher le panel.")
 
-	----------------------------------------------------------------
-	-- Finalisation des pages (barre de sous-onglets masquée si un seul)
-	----------------------------------------------------------------
-	for _, name in ipairs(N.order) do
-		local pg = N.pages[name]
-		if #pg.tabOrder <= 1 then
-			pg.bar.Visible = false
-			pg.areaBase = UDim2.new(0, 28, 0, 86)
-			pg.area.Position = pg.areaBase
-			pg.area.Size = UDim2.new(1, -56, 1, -86)
-		end
-		local first = pg.tabOrder[1]
-		if first then N.showTab(pg, first, true) end
-	end
 
 	----------------------------------------------------------------
 	-- Ouverture / fermeture / réduction / flou
@@ -3016,20 +3151,33 @@ do
 	function U.updateFx()
 		local showFx = N.open and not N.minimized
 		tw(blur, { Size = (showFx and M.Blur) and M.BlurSize or 0 }, 0.4)
-		tw(dim, { BackgroundTransparency = (showFx and M.Dim) and 0.74 or 1 }, 0.4)
+		tw(dim, { BackgroundTransparency = showFx and (1 - math.clamp(M.Dim, 0, 1)) or 1 }, 0.4)
 	end
+
+	local function mainPos() return M.StartPosition end
+	local homePos = nil
 
 	function U.setOpen(v)
 		if v == N.open then return end
 		N.open = v
 		if v then
 			main.Visible = true
+			local base = homePos or main.Position
+			homePos = nil
 			scale.Scale = 0.9
+			main.Position = base + UDim2.fromOffset(0, 26)
 			tw(scale, { Scale = 1 }, 0.45, Enum.EasingStyle.Back)
+			tw(main, { Position = base }, 0.45, Enum.EasingStyle.Quint)
+			animateIn()
 		else
-			tw(scale, { Scale = 0.94 }, 0.2)
-			task.delay(dur(0.2), function()
-				if not N.open then main.Visible = false end
+			homePos = main.Position
+			tw(scale, { Scale = 0.92 }, 0.22)
+			tw(main, { Position = main.Position + UDim2.fromOffset(0, 22) }, 0.22)
+			task.delay(dur(0.23), function()
+				if not N.open then
+					main.Visible = false
+					if homePos then main.Position = homePos end
+				end
 			end)
 		end
 		U.updateFx()
@@ -3040,7 +3188,7 @@ do
 	function U.setMinimized(v)
 		N.minimized = v
 		if v then
-			tw(main, { Size = UDim2.new(0, math.min(FULL.X.Offset, 600), 0, HEAD_H) }, 0.35, Enum.EasingStyle.Quint)
+			tw(main, { Size = UDim2.new(0, math.min(FULL.X.Offset, 620), 0, HEAD_H) }, 0.35, Enum.EasingStyle.Quint)
 			task.delay(dur(0.33), function()
 				if N.minimized then body.Visible = false end
 			end)
@@ -3058,7 +3206,7 @@ do
 	V.miniBtn.MouseButton1Click:Connect(function() U.setMinimized(not N.minimized) end)
 	V.closeBtn.MouseButton1Click:Connect(function()
 		U.setOpen(false)
-		U.notify("Menu masqué : appuie sur RightCtrl pour le rouvrir")
+		U.notify("Panel masqué : appuie sur K pour le rouvrir")
 	end)
 
 	local function applyLayout()
@@ -3066,24 +3214,25 @@ do
 		local w = math.min(M.Width, vp.X - 20)
 		local h = math.min(M.Height, vp.Y - 40)
 		FULL = UDim2.new(0, w, 0, h)
-		N.compact = w < 780
+		N.compact = w < 800
 		local sbw = N.compact and 68 or SIDE_W
 		V.sidebar.Size = UDim2.new(0, sbw, 1, 0)
 		V.content.Position = UDim2.new(0, sbw, 0, 0)
 		V.content.Size = UDim2.new(1, -sbw, 1, 0)
-		for _, p in pairs(N.pages) do p.txt.Visible = not N.compact end
-		for _, s in ipairs(N.sections) do s.Visible = not N.compact end
+		for _, e in pairs(N.navs) do e.txt.Visible = not N.compact end
 		V.userNm.Visible = not N.compact
 		V.userSt.Visible = not N.compact
 		V.chips.Visible = not N.compact
 		V.sub.Visible = not N.compact
 		V.sbox.Visible = not N.minimized
 		if not N.minimized then main.Size = FULL end
+		N.layout()
 	end
 
 	function U.resetWindow()
 		M.Width, M.Height = M.DefaultWidth, M.DefaultHeight
 		main.Position = M.StartPosition
+		homePos = nil
 		applyLayout()
 	end
 
@@ -3115,8 +3264,8 @@ do
 		UIS.InputChanged:Connect(function(i)
 			if gDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = i.Position - gStart
-				M.Width = math.clamp(gW + d.X * 2, 640, 1100) -- la fenêtre est centrée : ×2 pour suivre le curseur
-				M.Height = math.clamp(gH + d.Y * 2, 420, 760)
+				M.Width = math.clamp(gW + d.X * 2, 640, 1300) -- fenêtre centrée : ×2 pour suivre le curseur
+				M.Height = math.clamp(gH + d.Y * 2, 420, 800)
 				applyLayout()
 			end
 		end)
@@ -3129,7 +3278,7 @@ do
 
 	-- animation d'apparition au lancement
 	scale.Scale = 0.88
-	N.selectPage("Mouvement")
+	N.selectPage("Home")
 	tw(scale, { Scale = 1 }, 0.6, Enum.EasingStyle.Back)
 	U.updateFx()
 	U.setShimmer(M.AnimBorder)
@@ -4889,6 +5038,10 @@ do
 			setNoclip(not Config.Noclip.Enabled)
 		elseif keyIn(keys.Aimbot, k) then
 			setAimbot(not Config.Aimbot.Enabled)
+		elseif keyIn(keys.Camlock, k) then
+			setCamlock(not Config.Camlock.Enabled)
+		elseif keyIn(keys.RapidFire, k) then
+			setRapidFire(not Config.RapidFire.Enabled)
 		elseif keyIn(keys.SilentAim, k) then
 			setSilent(not Config.SilentAim.Enabled)
 		elseif keyIn(keys.ESP, k) then
