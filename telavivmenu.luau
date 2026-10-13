@@ -1,7 +1,7 @@
 --=====================================================================
 -- LocalScript (StarterPlayer > StarterPlayerScripts)
 -- Menu : ScreenGui "telavivmenu"
--- Version 5 : panel dashboard (cartes, flou, animations) + Camlock + Rapid Fire + BTools F3X + Walk Fling (1 fichier .luau)
+-- Version 5 : panel dashboard (cartes, flou, animations) + Camlock + Rapid Fire + BTools F3X + Walk Fling + Fling All (1 fichier .luau)
 --=====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -33,6 +33,7 @@ local Config = {
 		WalkSpeedDown = { Enum.KeyCode.Minus },
 		WalkSpeedUp   = { Enum.KeyCode.Equals },
 		WalkFling     = { Enum.KeyCode.T },
+		FlingAll      = { Enum.KeyCode.F },
 		FlingPowerDown = { Enum.KeyCode.Comma },
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
@@ -147,6 +148,7 @@ local Config = {
 		Prediction = true,
 		PredictionFactor = 0.12,
 		MaxDistance = math.huge,
+		HoldToAim = false,       -- true = ne vise que clic droit maintenu
 	},
 
 	Camlock = {
@@ -167,6 +169,9 @@ local Config = {
 		Rate = 30,               -- tirs par seconde (aucune limite)
 		Step = 10,
 		HoldOnly = true,         -- ne tire que quand tu maintiens le clic gauche
+		ForceEnabled = true,     -- remet Tool.Enabled = true (cooldowns faits avec Enabled = false)
+		Deactivate = true,       -- Activate() puis Deactivate() à chaque tir
+		MaxPerFrame = 60,
 	},
 
 	SilentAim = {
@@ -605,7 +610,7 @@ end)
 local autoTimer = 0
 RunService.Heartbeat:Connect(function(dt)
 	local fm = Config.FastMod
-	if not (fm.Enabled and fm.AutoFire) then autoTimer = 0; return end
+	if not (fm.Enabled and fm.AutoFire) or Config.RapidFire.Enabled then autoTimer = 0; return end
 	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then autoTimer = 0; return end
 	if UIS:GetFocusedTextBox() then return end
 
@@ -628,23 +633,65 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 ----------------------------------------------------------------------
--- Ciblage & Aimbot
+-- Ciblage, FOV, Aimbot & Silent Aim
 ----------------------------------------------------------------------
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
+rayParams.IgnoreWater = true
 
-local function isVisible(part)
-	rayParams.FilterDescendantsInstances = { player.Character }
-	local origin = camera.CFrame.Position
-	local result = workspace:Raycast(origin, part.Position - origin, rayParams)
-	return result == nil or result.Instance:IsDescendantOf(part.Parent)
+-- la souris est-elle au-dessus du panel ? (on ne tire / ne vise pas quand on clique dans le menu)
+local function mouseOverMenu()
+	if not (menuFrameRef and menuFrameRef.Visible) then return false end
+	local m = UIS:GetMouseLocation()
+	local p, sz = menuFrameRef.AbsolutePosition, menuFrameRef.AbsoluteSize
+	return m.X >= p.X and m.X <= p.X + sz.X and m.Y >= p.Y and m.Y <= p.Y + sz.Y
 end
 
--- Renvoie (position écran, position monde) de la cible la plus proche du centre
-local function getClosestTarget(s, partName)
-	local viewport = camera.ViewportSize
-	local center = Vector2.new(viewport.X / 2, viewport.Y / 2)
-	local bestScreen, bestWorld, bestDist = nil, nil, s.FOV
+-- visible = aucun mur solide entre la caméra et la cible (ignore les parts invisibles / non solides)
+local function isVisible(part)
+	local origin = camera.CFrame.Position
+	local dir = part.Position - origin
+	local ignore = { player.Character }
+	for _ = 1, 8 do
+		rayParams.FilterDescendantsInstances = ignore
+		local res = workspace:Raycast(origin, dir, rayParams)
+		if not res then return true end
+		local inst = res.Instance
+		if inst:IsDescendantOf(part.Parent) then return true end
+		if inst.Transparency >= 0.95 or not inst.CanCollide then
+			table.insert(ignore, inst)
+		else
+			return false
+		end
+	end
+	return false
+end
+
+-- centre du FOV : centre de l'écran, ou la souris quand le curseur est libre (useMouse)
+local function aimCenter(useMouse)
+	if useMouse and UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
+		return UIS:GetMouseLocation()
+	end
+	return camera.ViewportSize / 2
+end
+
+-- R6 et R15 : "Torso" = UpperTorso (R15) ou Torso (R6) ; "HumanoidRootPart" = centre du perso
+local function resolveAimPart(char, partName)
+	partName = partName or "Head"
+	local part
+	if partName == "Torso" or partName == "UpperTorso" then
+		part = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+	else
+		part = char:FindFirstChild(partName)
+	end
+	return part or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
+end
+
+-- Renvoie (position écran, position monde, part, joueur) de la cible la plus proche du centre du FOV
+local function getClosestTarget(s, partName, useMouse)
+	local center = aimCenter(useMouse)
+	local camPos = camera.CFrame.Position
+	local bestScreen, bestWorld, bestPart, bestPlr, bestDist = nil, nil, nil, nil, s.FOV
 
 	for _, other in ipairs(Players:GetPlayers()) do
 		local char = other.Character
@@ -652,10 +699,9 @@ local function getClosestTarget(s, partName)
 		if s.TeamCheck and other.Team ~= nil and other.Team == player.Team then continue end
 
 		local hum = char:FindFirstChildOfClass("Humanoid")
-		local part = char:FindFirstChild(partName or "Head") or char:FindFirstChild("HumanoidRootPart")
+		local part = resolveAimPart(char, partName)
 		if not hum or not part or hum.Health <= 0 then continue end
-		if (part.Position - camera.CFrame.Position).Magnitude > s.MaxDistance then continue end
-		if s.WallCheck and not isVisible(part) then continue end
+		if (part.Position - camPos).Magnitude > s.MaxDistance then continue end
 
 		local pos3D = part.Position
 		if s.Prediction then
@@ -665,29 +711,130 @@ local function getClosestTarget(s, partName)
 			end
 		end
 
-		local screenPos, onScreen = camera:WorldToViewportPoint(pos3D)
-		if not onScreen then continue end
+		local sp, onScreen = camera:WorldToViewportPoint(pos3D)
+		if not onScreen or sp.Z <= 0 then continue end
 
-		local v = Vector2.new(screenPos.X, screenPos.Y)
+		local v = Vector2.new(sp.X, sp.Y)
 		local d = (v - center).Magnitude
-		if d < bestDist then
-			bestScreen, bestWorld, bestDist = v, pos3D, d
+		-- on teste le FOV AVANT le raycast (beaucoup plus léger)
+		if d < bestDist and (not s.WallCheck or isVisible(part)) then
+			bestScreen, bestWorld, bestPart, bestPlr, bestDist = v, pos3D, part, other, d
 		end
 	end
-	return bestScreen, bestWorld
+	return bestScreen, bestWorld, bestPart, bestPlr
 end
 
--- Silent Aim : à appeler depuis le script d'arme du jeu :
---   local target = _G.DevTools.GetAimPosition(mouse.Hit.Position)
+----------------------------------------------------------------------
+-- Cercle FOV (suit le FOV de l'Aimbot, ou du Silent Aim si l'Aimbot est coupé)
+----------------------------------------------------------------------
+local fovGui = Instance.new("ScreenGui")
+fovGui.Name = "telavivfov"
+fovGui.ResetOnSpawn = false
+fovGui.IgnoreGuiInset = true
+fovGui.DisplayOrder = 49 -- sous le menu (50)
+fovGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local fovCircle = Instance.new("Frame")
+fovCircle.Name = "Circle"
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.BackgroundTransparency = 1
+fovCircle.BorderSizePixel = 0
+fovCircle.Active = false
+fovCircle.Visible = false
+fovCircle.Parent = fovGui
+
+local fovCorner = Instance.new("UICorner")
+fovCorner.CornerRadius = UDim.new(1, 0)
+fovCorner.Parent = fovCircle
+
+local fovStroke = Instance.new("UIStroke")
+fovStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+fovStroke.Parent = fovCircle
+
+task.spawn(function()
+	fovGui.Parent = player:WaitForChild("PlayerGui")
+end)
+
+RunService.RenderStepped:Connect(function()
+	local a, s, fc = Config.Aimbot, Config.SilentAim, Config.FOVCircle
+	local radius, useMouse
+	if a.Enabled then
+		radius, useMouse = a.FOV, false
+	elseif s.Enabled then
+		radius, useMouse = s.FOV, true
+	end
+	if not (fc.Show and radius and radius > 0) then
+		fovCircle.Visible = false
+		return
+	end
+	local c = aimCenter(useMouse)
+	fovCircle.Position = UDim2.fromOffset(c.X, c.Y)
+	fovCircle.Size = UDim2.fromOffset(radius * 2, radius * 2)
+	fovStroke.Color = fc.Color
+	fovStroke.Thickness = fc.Thickness
+	fovCircle.Visible = true
+end)
+
+----------------------------------------------------------------------
+-- Silent Aim
+-- La cible est recalculée à chaque image (cache), puis servie :
+--   1) via l'API _G.DevTools (à appeler depuis le script d'arme du jeu) :
+--        local pos = _G.DevTools.GetAimPosition(mouse.Hit.Position)
+--        local part = _G.DevTools.GetAimTarget()            -- Part visée (ou nil)
+--        local dir = _G.DevTools.GetAimDirection(origin, defaultDir)
+--   2) automatiquement sur mouse.Hit / mouse.Target si l'environnement
+--      fournit hookmetamethod + checkcaller (executor) ; sinon ignoré sans erreur.
+----------------------------------------------------------------------
+local silentCache = { part = nil, pos = nil, plr = nil }
+local silentRoll, silentRollT = true, 0
+
+RunService.RenderStepped:Connect(function()
+	local s = Config.SilentAim
+	if not s.Enabled then
+		silentCache.part, silentCache.pos, silentCache.plr = nil, nil, nil
+		return
+	end
+	local now = os.clock()
+	if now - silentRollT > 0.1 then
+		silentRollT = now
+		silentRoll = math.random(1, 100) <= s.HitChance
+	end
+	if not silentRoll then
+		silentCache.part, silentCache.pos, silentCache.plr = nil, nil, nil
+		return
+	end
+	local _, world, part, plr = getClosestTarget(s, s.TargetPart, true)
+	silentCache.part, silentCache.pos, silentCache.plr = part, world, plr
+end)
+
 _G.DevTools = _G.DevTools or {}
 function _G.DevTools.GetAimPosition(defaultPos)
-	local s = Config.SilentAim
-	if s.Enabled and math.random(1, 100) <= s.HitChance then
-		local _, world = getClosestTarget(s, s.TargetPart)
-		if world then return world end
-	end
-	return defaultPos
+	return silentCache.pos or defaultPos
 end
+function _G.DevTools.GetAimTarget()
+	return silentCache.part
+end
+function _G.DevTools.GetAimDirection(origin, defaultDir)
+	local p = silentCache.pos
+	if p and (p - origin).Magnitude > 0.01 then return (p - origin).Unit end
+	return defaultDir
+end
+
+pcall(function()
+	if typeof(hookmetamethod) ~= "function" or typeof(checkcaller) ~= "function" then return end
+	local old
+	local wrap = typeof(newcclosure) == "function" and newcclosure or function(f) return f end
+	old = hookmetamethod(game, "__index", wrap(function(self, key)
+		if self == mouse and silentCache.pos and not checkcaller() then
+			if key == "Hit" then
+				return CFrame.new(silentCache.pos)
+			elseif key == "Target" then
+				return silentCache.part
+			end
+		end
+		return old(self, key)
+	end))
+end)
 
 ----------------------------------------------------------------------
 -- Invisibilité & Noclip
@@ -904,13 +1051,19 @@ RunService.RenderStepped:Connect(function()
 end)
 
 -- Aimbot : la caméra vise la cible (appliqué APRÈS le script caméra de Roblox)
-RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 1, function()
+-- Smoothness indépendante des FPS ; option "maintenir clic droit" ; pas d'aim pendant la saisie / dans le menu
+RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	local a = Config.Aimbot
 	if not a.Enabled then return end
-	local _, world = getClosestTarget(a, a.TargetPart)
+	if UIS:GetFocusedTextBox() then return end
+	if a.HoldToAim and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
+	if mouseOverMenu() then return end
+	local _, world = getClosestTarget(a, a.TargetPart, false)
 	if world then
 		local camPos = camera.CFrame.Position
-		camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camPos, world), math.clamp(a.Smoothness, 0.01, 1))
+		local s = math.clamp(a.Smoothness, 0.01, 1)
+		local alpha = s >= 1 and 1 or 1 - (1 - s) ^ (math.min(dt, 0.1) * 60)
+		camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camPos, world), alpha)
 	end
 end)
 
@@ -924,7 +1077,7 @@ local function camValid(plr, c)
 	local char = plr and plr.Parent and plr.Character
 	if not char then return nil end
 	local hum = char:FindFirstChildOfClass("Humanoid")
-	local part = char:FindFirstChild(c.TargetPart) or char:FindFirstChild("HumanoidRootPart")
+	local part = resolveAimPart(char, c.TargetPart)
 	if not hum or not part or hum.Health <= 0 then return nil end
 	return part, char
 end
@@ -980,18 +1133,20 @@ do
 		if not r.Enabled then acc = 0 return end
 		if r.HoldOnly and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then acc = 0 return end
 		if UIS:GetFocusedTextBox() then return end
-		if menuFrameRef and menuFrameRef.Visible then
-			local m = UIS:GetMouseLocation()
-			local p, sz = menuFrameRef.AbsolutePosition, menuFrameRef.AbsoluteSize
-			if m.X >= p.X and m.X <= p.X + sz.X and m.Y >= p.Y and m.Y <= p.Y + sz.Y then return end
-		end
+		if mouseOverMenu() then return end
 		local char = player.Character
 		local tool = char and char:FindFirstChildOfClass("Tool")
-		if not tool then return end
+		if not tool then acc = 0 return end
 		acc += dt * math.max(r.Rate, 0)
-		local n = math.min(math.floor(acc), 60) -- 60 max par image (évite de figer le client)
+		local n = math.min(math.floor(acc), r.MaxPerFrame) -- max par image (évite de figer le client)
 		acc -= math.floor(acc)
-		for _ = 1, n do tool:Activate() end
+		for _ = 1, n do
+			-- les armes qui font Tool.Enabled = false pour leur cooldown bloqueraient Activate()
+			if r.ForceEnabled and not tool.Enabled then tool.Enabled = true end
+			tool:Activate()
+			-- Deactivate : sans lui, les armes à boucle "tant que activée" empilent des boucles
+			if r.Deactivate then tool:Deactivate() end
+		end
 	end)
 end
 
@@ -1548,6 +1703,197 @@ local function setWalkEnabled(v) Config.Walk.Enabled = v; refreshUI() end
 local function setJumpEnabled(v) Config.Jump.Enabled = v; refreshUI() end
 
 ----------------------------------------------------------------------
+-- Fling All (boucle sur tous les joueurs)
+----------------------------------------------------------------------
+Config.FlingAll = {
+	Enabled = false,
+	VelocityPower = 9e7,
+	RotVelocityPower = 9e8,
+	TimeToWait = 2,
+	DelayBetweenTargets = 0.3,
+	MinVelocitySuccess = 500,
+	LoopDelay = 1,
+	Whitelist = {}, -- noms à ne pas fling
+}
+
+local flingAllRunning = false
+local flingAllOldPos = nil
+local flingAllFPDH = workspace.FallenPartsDestroyHeight
+
+local function flingAllWhitelisted(plr)
+	local n = plr.Name:lower()
+	for _, w in ipairs(Config.FlingAll.Whitelist) do
+		if w:lower() == n then return true end
+	end
+	return false
+end
+
+local function flingAllSeated(plr)
+	local hum = plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+	return hum ~= nil and hum.Sit
+end
+
+local function flingAllWaitRespawn()
+	local waited = false
+	while Config.FlingAll.Enabled do
+		local char = player.Character
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		if char and char.Parent and hum and hum.Health > 0 and hum.RootPart then
+			if waited then task.wait(1) end
+			return true
+		end
+		waited = true
+		task.wait(0.5)
+	end
+	return false
+end
+
+local function flingAllOne(target)
+	local F = Config.FlingAll
+	if not target.Parent or flingAllSeated(target) then return false end
+
+	local char = player.Character
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	local root = hum and hum.RootPart
+	local tchar = target.Character
+	local thum = tchar and tchar:FindFirstChildOfClass("Humanoid")
+	local troot = thum and thum.RootPart
+	local thead = tchar and tchar:FindFirstChild("Head")
+	local acc = tchar and tchar:FindFirstChildOfClass("Accessory")
+	local handle = acc and acc:FindFirstChild("Handle")
+	if not (char and hum and root and tchar and thum) then return false end
+	if not tchar:FindFirstChildWhichIsA("BasePart") then return false end
+
+	if root.AssemblyLinearVelocity.Magnitude < 50 then
+		flingAllOldPos = root.CFrame
+	end
+
+	-- la caméra suit la cible
+	if thead then camera.CameraSubject = thead
+	elseif handle then camera.CameraSubject = handle
+	elseif troot then camera.CameraSubject = thum end
+
+	local function fpos(base, pos, ang)
+		if not base.Parent or not root.Parent or not char.Parent then return end
+		char:PivotTo(CFrame.new(base.Position) * pos * ang)
+		root.AssemblyLinearVelocity = Vector3.new(F.VelocityPower, F.VelocityPower * 10, F.VelocityPower)
+		root.AssemblyAngularVelocity = Vector3.new(F.RotVelocityPower, F.RotVelocityPower, F.RotVelocityPower)
+	end
+
+	local function sfbase(base)
+		local t0 = tick()
+		local angle = 0
+		repeat
+			if not (root.Parent and thum.Parent) then break end
+			local md = thum.MoveDirection
+			local bv = base.AssemblyLinearVelocity.Magnitude
+			if bv < 50 then
+				angle += 100
+				local a = CFrame.Angles(math.rad(angle), 0, 0)
+				fpos(base, CFrame.new(0, 1.5, 0) + md * bv / 1.25, a); task.wait()
+				fpos(base, CFrame.new(0, -1.5, 0) + md * bv / 1.25, a); task.wait()
+				fpos(base, CFrame.new(2.25, 1.5, -2.25) + md * bv / 1.25, a); task.wait()
+				fpos(base, CFrame.new(-2.25, -1.5, 2.25) + md * bv / 1.25, a); task.wait()
+				fpos(base, CFrame.new(0, 1.5, 0) + md, a); task.wait()
+				fpos(base, CFrame.new(0, -1.5, 0) + md, a); task.wait()
+			else
+				local tv = troot and troot.AssemblyLinearVelocity.Magnitude / 1.25 or 0
+				fpos(base, CFrame.new(0, 1.5, thum.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, -1.5, -thum.WalkSpeed), CFrame.Angles(0, 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, 1.5, thum.WalkSpeed), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, 1.5, tv), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, -1.5, -tv), CFrame.Angles(0, 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, 1.5, tv), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(90), 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(math.rad(-90), 0, 0)); task.wait()
+				fpos(base, CFrame.new(0, -1.5, 0), CFrame.Angles(0, 0, 0)); task.wait()
+			end
+		until not F.Enabled
+			or base.AssemblyLinearVelocity.Magnitude > F.MinVelocitySuccess
+			or base.Parent ~= target.Character
+			or target.Parent ~= Players
+			or thum.Sit
+			or hum.Health <= 0
+			or tick() > t0 + F.TimeToWait
+	end
+
+	workspace.FallenPartsDestroyHeight = 0 / 0
+	hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
+
+	if troot and thead then
+		if (troot.Position - thead.Position).Magnitude > 5 then sfbase(thead) else sfbase(troot) end
+	elseif troot then sfbase(troot)
+	elseif thead then sfbase(thead)
+	elseif acc and handle then sfbase(handle)
+	else return false end
+
+	-- retour à la position de départ
+	local t0 = tick()
+	repeat
+		if not root.Parent or not char.Parent or not flingAllOldPos then break end
+		char:PivotTo(flingAllOldPos * CFrame.new(0, 0.5, 0))
+		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		for _, x in ipairs(char:GetChildren()) do
+			if x:IsA("BasePart") then
+				x.AssemblyLinearVelocity = Vector3.zero
+				x.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+		task.wait()
+	until (root.Position - flingAllOldPos.Position).Magnitude < 25 or tick() > t0 + 3
+	return true
+end
+
+-- exécute un fling puis remet tout en ordre, même en cas d'erreur
+local function flingAllSafe(target)
+	pcall(flingAllOne, target)
+	workspace.FallenPartsDestroyHeight = flingAllFPDH
+	local _, hum = getChar()
+	if hum then
+		hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
+		camera.CameraSubject = hum
+	end
+end
+
+local function startFlingAll()
+	if flingAllRunning then return end
+	flingAllRunning = true
+	task.spawn(function()
+		while Config.FlingAll.Enabled do
+			local F = Config.FlingAll
+			local targets = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player and not flingAllWhitelisted(p) then table.insert(targets, p) end
+			end
+			for _, t in ipairs(targets) do
+				if not F.Enabled then break end
+				if t.Parent and not flingAllWhitelisted(t) and flingAllWaitRespawn() then
+					if flingAllSeated(t) then
+						task.wait(0.2)
+					else
+						flingAllSafe(t)
+						task.wait(F.DelayBetweenTargets)
+					end
+				end
+			end
+			task.wait(F.LoopDelay)
+		end
+		flingAllRunning = false
+	end)
+end
+
+local function setFlingAll(v)
+	Config.FlingAll.Enabled = v
+	if v then
+		if Config.WalkFling.Enabled then setWalkFling(false) end -- évite le conflit de vélocité
+		if Config.Fly.Enabled then setFly(false) end
+		startFlingAll()
+	end
+	refreshUI()
+end
+
+----------------------------------------------------------------------
 -- GUI "telavivmenu" v3 : interface à onglets + BTools
 ----------------------------------------------------------------------
 local U = {}     -- partage entre les blocs GUI
@@ -2017,7 +2363,8 @@ do
 		end
 		local fpsL, fpsDot = chip(1)
 		local pingL, pingDot = chip(2)
-				local frames, acc = 0, 0
+		local plrL = chip(3)
+		local frames, acc = 0, 0
 		RunService.RenderStepped:Connect(function(dt)
 			frames += 1
 			acc += dt
@@ -2954,7 +3301,7 @@ do
 	end
 	local function both(key, v) Config.Aimbot[key] = v; Config.SilentAim[key] = v end
 	local function espAfter() if Config.ESP.Enabled then refreshESP() end end
-	local PARTS = { { "Tête", "Head" }, { "Torse", "HumanoidRootPart" } }
+	local PARTS = { { "Tête", "Head" }, { "Torse", "Torso" }, { "Centre", "HumanoidRootPart" } }
 
 	----------------------------------------------------------------
 	-- Contenu : toutes les cartes
@@ -2990,6 +3337,9 @@ do
 	makeToggle("Team Check", function() return Config.Aimbot.TeamCheck end, function(v) both("TeamCheck", v); refreshUI() end)
 	makeToggle("Wall Check", function() return Config.Aimbot.WallCheck end, function(v) both("WallCheck", v); refreshUI() end)
 	makeToggle("Prediction", function() return Config.Aimbot.Prediction end, function(v) both("Prediction", v); refreshUI() end)
+	cfgToggle("Aimbot : maintenir clic droit", Config.Aimbot, "HoldToAim")
+	cfgStep("Silent Aim : Hit Chance (%)", Config.SilentAim, "HitChance", 5, 1, 100)
+	makeNote("Le cercle FOV s'affiche si \"FOV Circle\" est activé (onglet Visuals). Silent Aim : le jeu doit appeler _G.DevTools.GetAimPosition(...), ou un executor avec hookmetamethod le branche tout seul sur mouse.Hit.")
 
 	makeCard("Camlock", "⌖", { "Home", "Combat" })
 	makeToggle("Camlock", function() return Config.Camlock.Enabled end, setCamlock, keyLabel(Config.Keys.Camlock))
@@ -3015,6 +3365,8 @@ do
 	makeStepper("Tirs / seconde", function() return Config.RapidFire.Rate end,
 		function(v) Config.RapidFire.Rate = math.max(v, 0); refreshUI() end, Config.RapidFire.Step, 1, 200)
 	cfgToggle("Maintenir le clic", Config.RapidFire, "HoldOnly")
+	cfgToggle("Forcer Tool.Enabled", Config.RapidFire, "ForceEnabled")
+	cfgToggle("Deactivate après chaque tir", Config.RapidFire, "Deactivate")
 	makeNote("Arme en main + clic gauche maintenu. La valeur n'a pas de limite (60 tirs max par image pour ne pas figer le jeu).")
 
 	makeCard("ESP & Visuals", "👁", { "Home", "Visuals" })
@@ -3111,6 +3463,23 @@ do
 	cfgToggle("Notifier mes kills", Config.Kills, "Enabled")
 	cfgStep("Délai contact → mort (s)", Config.Kills, "Window", 1)
 	makeNote("Touches , et . : puissance −/+. Fling uniquement au contact.")
+
+	makeCard("Fling All", "☄", { "Home", "Troll" })
+	makeToggle("Fling All (boucle)", function() return Config.FlingAll.Enabled end, setFlingAll, keyLabel(Config.Keys.FlingAll))
+	cfgStep("Temps max / joueur (s)", Config.FlingAll, "TimeToWait", 0.5, 0.5, 10)
+	cfgStep("Pause entre cibles (s)", Config.FlingAll, "DelayBetweenTargets", 0.1, 0, 5)
+	cfgStep("Pause entre boucles (s)", Config.FlingAll, "LoopDelay", 0.5, 0, 10)
+	makeTextAction("Whitelist", "nom exact", "Add", function(t)
+		t = (t or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		if t == "" then U.notify("Nom vide") return end
+		table.insert(Config.FlingAll.Whitelist, t)
+		U.notify("Whitelist : " .. t)
+	end)
+	makeButton("Vider la whitelist", function()
+		table.clear(Config.FlingAll.Whitelist)
+		U.notify("Whitelist vidée")
+	end, true)
+	makeNote("Boucle sur tous les joueurs (sauf whitelist et assis). Touche F. Coupe Walk Fling et Fly à l'activation.")
 
 	makeCard("BTools", "🔨", { "Home", "BTools" })
 	makeToggle("BTools (ouvre le panneau)", function() return Config.BTools.Enabled end, function(v) BTf.setEnabled(v) end, keyLabel(Config.Keys.BTools))
@@ -5048,6 +5417,8 @@ do
 			setESP(not Config.ESP.Enabled)
 		elseif keyIn(keys.WalkFling, k) then
 			setWalkFling(not Config.WalkFling.Enabled)
+		elseif keyIn(keys.FlingAll, k) then
+			setFlingAll(not Config.FlingAll.Enabled)
 		elseif keyIn(keys.FlingPowerDown, k) then
 			addFlingPower(-Config.WalkFling.Step)
 		elseif keyIn(keys.FlingPowerUp, k) then
