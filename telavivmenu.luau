@@ -374,6 +374,8 @@ end
 -- Fast Mod v2 (cooldown / cadence / reload / tir auto / modules de réglages / animations)
 ----------------------------------------------------------------------
 local menuFrameRef = nil -- rempli plus bas par le GUI
+local fastPatchAll, restoreFastMod, addFastKeyword
+do
 local originals = setmetatable({}, { __mode = "k" })      -- [instance ou table] = { [clé] = valeur d'origine }
 local watchConns = setmetatable({}, { __mode = "k" })     -- [instance] = { [clé] = connexion }
 local patchedModules = setmetatable({}, { __mode = "k" }) -- [ModuleScript] = table requise (ou false)
@@ -524,7 +526,7 @@ local function hookTool(tool)
 	end)
 end
 
-local function fastPatchAll()
+function fastPatchAll()
 	local fm = Config.FastMod
 	local char = player.Character
 	local tool = char and char:FindFirstChildOfClass("Tool")
@@ -539,7 +541,7 @@ local function fastPatchAll()
 	end
 end
 
-local function restoreFastMod()
+function restoreFastMod()
 	-- on coupe la surveillance d'abord pour ne pas re-patcher pendant la restauration
 	for _, conns in pairs(watchConns) do
 		for _, c in pairs(conns) do c:Disconnect() end
@@ -565,7 +567,7 @@ local function restoreFastMod()
 end
 
 -- ajoute un mot-clé (minuscules) à une liste, renvoie true si ajouté
-local function addFastKeyword(list, text)
+function addFastKeyword(list, text)
 	text = (text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 	if text == "" or table.find(list, text) then return false end
 	table.insert(list, text)
@@ -631,6 +633,7 @@ RunService.Heartbeat:Connect(function(dt)
 		tool:Activate()
 	end
 end)
+end
 
 ----------------------------------------------------------------------
 -- Ciblage, FOV, Aimbot & Silent Aim
@@ -727,6 +730,7 @@ end
 ----------------------------------------------------------------------
 -- Cercle FOV (suit le FOV de l'Aimbot, ou du Silent Aim si l'Aimbot est coupé)
 ----------------------------------------------------------------------
+do
 local fovGui = Instance.new("ScreenGui")
 fovGui.Name = "telavivfov"
 fovGui.ResetOnSpawn = false
@@ -752,7 +756,10 @@ fovStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 fovStroke.Parent = fovCircle
 
 task.spawn(function()
-	fovGui.Parent = player:WaitForChild("PlayerGui")
+	local pg = player:WaitForChild("PlayerGui")
+	local oldFov = pg:FindFirstChild("telavivfov")
+	if oldFov then oldFov:Destroy() end
+	fovGui.Parent = pg
 end)
 
 RunService.RenderStepped:Connect(function()
@@ -774,6 +781,7 @@ RunService.RenderStepped:Connect(function()
 	fovStroke.Thickness = fc.Thickness
 	fovCircle.Visible = true
 end)
+end
 
 ----------------------------------------------------------------------
 -- Silent Aim
@@ -785,6 +793,7 @@ end)
 --   2) automatiquement sur mouse.Hit / mouse.Target si l'environnement
 --      fournit hookmetamethod + checkcaller (executor) ; sinon ignoré sans erreur.
 ----------------------------------------------------------------------
+do
 local silentCache = { part = nil, pos = nil, plr = nil }
 local silentRoll, silentRollT = true, 0
 
@@ -835,6 +844,7 @@ pcall(function()
 		return old(self, key)
 	end))
 end)
+end
 
 ----------------------------------------------------------------------
 -- Invisibilité & Noclip
@@ -904,6 +914,7 @@ end)
 -- Boucle principale
 ----------------------------------------------------------------------
 local wasFlying = false
+local flyState = { part = nil, vel = Vector3.zero } -- réappliqué aussi à chaque pas physique (pas de dérive à bas FPS)
 local seatedDisabled = false
 local lastHum = nil
 local origWalk = nil
@@ -997,18 +1008,22 @@ RunService.RenderStepped:Connect(function()
 		origSwim = nil
 	end
 
+	flyState.part = nil
 	if fly.Enabled then
 		wasFlying = true
 
+		-- pas de déplacement quand on tape dans le chat / une zone de texte
 		local dir = Vector3.zero
 		local cf = camera.CFrame
-		if UIS:IsKeyDown(Enum.KeyCode.W) then dir += cf.LookVector end
-		if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= cf.LookVector end
-		if UIS:IsKeyDown(Enum.KeyCode.D) then dir += cf.RightVector end
-		if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= cf.RightVector end
-		if UIS:IsKeyDown(fly.UpKey) then dir += Vector3.yAxis end
-		if UIS:IsKeyDown(fly.DownKey) then dir -= Vector3.yAxis end
-		local vel = (dir.Magnitude > 0 and dir.Unit or Vector3.zero) * fly.Speed
+		if not UIS:GetFocusedTextBox() then
+			if UIS:IsKeyDown(Enum.KeyCode.W) then dir += cf.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.S) then dir -= cf.LookVector end
+			if UIS:IsKeyDown(Enum.KeyCode.D) then dir += cf.RightVector end
+			if UIS:IsKeyDown(Enum.KeyCode.A) then dir -= cf.RightVector end
+			if UIS:IsKeyDown(fly.UpKey) then dir += Vector3.yAxis end
+			if UIS:IsKeyDown(fly.DownKey) then dir -= Vector3.yAxis end
+		end
+		local vel = (dir.Magnitude > 0 and dir.Unit or Vector3.zero) * math.max(fly.Speed, 0)
 
 		local seat = hum.SeatPart
 		if seat and fly.VehicleMode then
@@ -1020,6 +1035,7 @@ RunService.RenderStepped:Connect(function()
 			local base = seat.AssemblyRootPart or seat
 			base.AssemblyLinearVelocity = vel
 			base.AssemblyAngularVelocity = Vector3.zero
+			flyState.part, flyState.vel = base, vel
 		else
 			-- Pas de véhicule (ou mode détaché) : on éjecte du siège et on vole
 			if seat then
@@ -1033,6 +1049,7 @@ RunService.RenderStepped:Connect(function()
 			end
 			hum.PlatformStand = true
 			root.AssemblyLinearVelocity = vel
+			flyState.part, flyState.vel = root, vel
 			local flat = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
 			if flat.Magnitude > 0.01 then
 				root.CFrame = CFrame.lookAt(root.Position, root.Position + flat)
@@ -1041,6 +1058,7 @@ RunService.RenderStepped:Connect(function()
 	elseif wasFlying then
 		wasFlying = false
 		hum.PlatformStand = false
+		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
 		if seatedDisabled then
 			hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
 			seatedDisabled = false
@@ -1050,8 +1068,17 @@ RunService.RenderStepped:Connect(function()
 	setInvisible(fly.Enabled and fly.Invisible)
 end)
 
+-- Fly : on réapplique la vitesse à chaque pas physique (sinon la gravité te fait descendre quand les FPS sont bas)
+RunService.Stepped:Connect(function()
+	local part = flyState.part
+	if part and part.Parent and Config.Fly.Enabled then
+		part.AssemblyLinearVelocity = flyState.vel
+	end
+end)
+
 -- Aimbot : la caméra vise la cible (appliqué APRÈS le script caméra de Roblox)
 -- Smoothness indépendante des FPS ; option "maintenir clic droit" ; pas d'aim pendant la saisie / dans le menu
+pcall(function() RunService:UnbindFromRenderStep("TelAvivAimbot") end)
 RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	local a = Config.Aimbot
 	if not a.Enabled then return end
@@ -1105,6 +1132,7 @@ function camState.lockNearest()
 	return camTarget
 end
 
+pcall(function() RunService:UnbindFromRenderStep("TelAvivCamlock") end)
 RunService:BindToRenderStep("TelAvivCamlock", Enum.RenderPriority.Camera.Value + 2, function()
 	local c = Config.Camlock
 	if not c.Enabled then camTarget = nil return end
@@ -1657,7 +1685,7 @@ local function setClickTP(v) Config.TP.ClickTP = v; refreshUI() end
 local function setInfJump(v) Config.InfJump.Enabled = v; refreshUI() end
 local function setFlyVehicle(v) Config.Fly.VehicleMode = v; refreshUI() end
 local function setFlingPower(v)
-	Config.WalkFling.Power = math.floor(v) -- aucune limite
+	Config.WalkFling.Power = math.max(math.floor(v), 0) -- aucune limite haute
 	refreshUI()
 end
 local function addFlingPower(d) setFlingPower(Config.WalkFling.Power + d) end
@@ -1676,16 +1704,16 @@ local function setFastDelayMs(ms)
 end
 
 local function setJumpPower(v)
-	Config.Jump.Power = math.floor(v) -- aucune limite
+	Config.Jump.Power = math.max(math.floor(v), 0) -- aucune limite haute
 	Config.Jump.Enabled = true
 	refreshUI()
 end
 local function addJumpPower(d) setJumpPower(Config.Jump.Power + d) end
 
-local function setFlySpeed(v) Config.Fly.Speed = v; refreshUI() end -- aucune limite
+local function setFlySpeed(v) Config.Fly.Speed = math.max(v, 0); refreshUI() end -- aucune limite haute
 local function addFlySpeed(d) setFlySpeed(Config.Fly.Speed + d) end
 local function setWalkSpeed(v)
-	Config.Walk.Speed = v -- aucune limite
+	Config.Walk.Speed = math.max(v, 0) -- aucune limite haute
 	Config.Walk.Enabled = true
 	refreshUI()
 end
@@ -1696,7 +1724,7 @@ local function addWalkSpeed(d)
 	end
 	setWalkSpeed(Config.Walk.Speed + d)
 end
-local function setSwimSpeed(v) Config.Swim.Speed = v; Config.Swim.Enabled = true; refreshUI() end
+local function setSwimSpeed(v) Config.Swim.Speed = math.max(v, 0); Config.Swim.Enabled = true; refreshUI() end
 local function setSwimEnabled(v) Config.Swim.Enabled = v; refreshUI() end
 
 local function setWalkEnabled(v) Config.Walk.Enabled = v; refreshUI() end
@@ -1716,6 +1744,8 @@ Config.FlingAll = {
 	Whitelist = {}, -- noms à ne pas fling
 }
 
+local setFlingAll
+do
 local flingAllRunning = false
 local flingAllOldPos = nil
 local flingAllFPDH = workspace.FallenPartsDestroyHeight
@@ -1883,7 +1913,7 @@ local function startFlingAll()
 	end)
 end
 
-local function setFlingAll(v)
+function setFlingAll(v)
 	Config.FlingAll.Enabled = v
 	if v then
 		if Config.WalkFling.Enabled then setWalkFling(false) end -- évite le conflit de vélocité
@@ -1891,6 +1921,7 @@ local function setFlingAll(v)
 		startFlingAll()
 	end
 	refreshUI()
+end
 end
 
 ----------------------------------------------------------------------
@@ -2393,7 +2424,10 @@ do
 		UIS.InputChanged:Connect(function(i)
 			if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = i.Position - dStart
-				main.Position = UDim2.new(dPos.X.Scale, dPos.X.Offset + d.X, dPos.Y.Scale, dPos.Y.Offset + d.Y)
+				local vp = camera.ViewportSize
+				local px = math.clamp(dPos.X.Scale * vp.X + dPos.X.Offset + d.X, 80, math.max(vp.X - 80, 80))
+				local py = math.clamp(dPos.Y.Scale * vp.Y + dPos.Y.Offset + d.Y, HEAD_H / 2, math.max(vp.Y - HEAD_H / 2, HEAD_H / 2))
+				main.Position = UDim2.fromOffset(px, py)
 			end
 		end)
 		UIS.InputEnded:Connect(function(i)
@@ -3329,16 +3363,17 @@ do
 	makeToggle("Silent Aim", function() return Config.SilentAim.Enabled end, setSilent, keyLabel(Config.Keys.SilentAim))
 	makeToggle("Auto Fire", function() return Config.FastMod.AutoFire end, setAutoFire, keyLabel(Config.Keys.AutoFire))
 	makeSub("Aimbot Settings")
-	makeStepper("FOV", function() return Config.Aimbot.FOV end, function(v) both("FOV", v); refreshUI() end, 10, 0, 1000)
+	makeStepper("FOV", function() return Config.Aimbot.FOV end, function(v) both("FOV", math.max(v, 0)); refreshUI() end, 10, 0, 1000)
 	makeStepper("Smoothness", function() return Config.Aimbot.Smoothness end,
-		function(v) Config.Aimbot.Smoothness = v; refreshUI() end, 0.05, 0.01, 1)
+		function(v) Config.Aimbot.Smoothness = math.clamp(v, 0.01, 1); refreshUI() end, 0.05, 0.01, 1)
 	makeSegment("Target Part", PARTS, function() return Config.Aimbot.TargetPart end,
 		function(v) both("TargetPart", v); refreshUI() end)
 	makeToggle("Team Check", function() return Config.Aimbot.TeamCheck end, function(v) both("TeamCheck", v); refreshUI() end)
 	makeToggle("Wall Check", function() return Config.Aimbot.WallCheck end, function(v) both("WallCheck", v); refreshUI() end)
 	makeToggle("Prediction", function() return Config.Aimbot.Prediction end, function(v) both("Prediction", v); refreshUI() end)
 	cfgToggle("Aimbot : maintenir clic droit", Config.Aimbot, "HoldToAim")
-	cfgStep("Silent Aim : Hit Chance (%)", Config.SilentAim, "HitChance", 5, 1, 100)
+	cfgStep("Silent Aim : Hit Chance (%)", Config.SilentAim, "HitChance", 5, 1, 100,
+		function() Config.SilentAim.HitChance = math.clamp(Config.SilentAim.HitChance, 0, 100) end)
 	makeNote("Le cercle FOV s'affiche si \"FOV Circle\" est activé (onglet Visuals). Silent Aim : le jeu doit appeler _G.DevTools.GetAimPosition(...), ou un executor avec hookmetamethod le branche tout seul sur mouse.Hit.")
 
 	makeCard("Camlock", "⌖", { "Home", "Combat" })
@@ -3350,7 +3385,8 @@ do
 		U.notify(p and ("Camlock : " .. p.Name) or "Aucune cible")
 	end)
 	makeSub("Camlock Settings")
-	cfgStep("Smoothness", Config.Camlock, "Smoothness", 0.05, 0.01, 1)
+	cfgStep("Smoothness", Config.Camlock, "Smoothness", 0.05, 0.01, 1,
+		function() Config.Camlock.Smoothness = math.clamp(Config.Camlock.Smoothness, 0.01, 1) end)
 	makeSegment("Target Part", PARTS, function() return Config.Camlock.TargetPart end,
 		function(v) Config.Camlock.TargetPart = v; refreshUI() end)
 	cfgToggle("Garder la cible (Sticky)", Config.Camlock, "Sticky")
@@ -3400,7 +3436,8 @@ do
 	cfgStep("Hauteur", Config.Bring, "Height", 1)
 	cfgStep("Écart", Config.Bring, "Spacing", 1)
 	cfgToggle("Déplacement fluide", Config.Bring, "Smooth")
-	cfgStep("Vitesse fluide", Config.Bring, "SmoothSpeed", 0.05, 0.01, 1)
+	cfgStep("Vitesse fluide", Config.Bring, "SmoothSpeed", 0.05, 0.01, 1,
+		function() Config.Bring.SmoothSpeed = math.clamp(Config.Bring.SmoothSpeed, 0.01, 1) end)
 	cfgToggle("Ils me regardent", Config.Bring, "FaceMe")
 	cfgToggle("Ignorer les assis", Config.Bring, "SkipSeated")
 	cfgToggle("Ignorer mon équipe", Config.Bring, "TeamCheck")
@@ -3466,12 +3503,18 @@ do
 
 	makeCard("Fling All", "☄", { "Home", "Troll" })
 	makeToggle("Fling All (boucle)", function() return Config.FlingAll.Enabled end, setFlingAll, keyLabel(Config.Keys.FlingAll))
-	cfgStep("Temps max / joueur (s)", Config.FlingAll, "TimeToWait", 0.5, 0.5, 10)
-	cfgStep("Pause entre cibles (s)", Config.FlingAll, "DelayBetweenTargets", 0.1, 0, 5)
-	cfgStep("Pause entre boucles (s)", Config.FlingAll, "LoopDelay", 0.5, 0, 10)
+	cfgStep("Temps max / joueur (s)", Config.FlingAll, "TimeToWait", 0.5, 0.5, 10,
+		function() Config.FlingAll.TimeToWait = math.max(Config.FlingAll.TimeToWait, 0.1) end)
+	cfgStep("Pause entre cibles (s)", Config.FlingAll, "DelayBetweenTargets", 0.1, 0, 5,
+		function() Config.FlingAll.DelayBetweenTargets = math.max(Config.FlingAll.DelayBetweenTargets, 0) end)
+	cfgStep("Pause entre boucles (s)", Config.FlingAll, "LoopDelay", 0.5, 0, 10,
+		function() Config.FlingAll.LoopDelay = math.max(Config.FlingAll.LoopDelay, 0) end)
 	makeTextAction("Whitelist", "nom exact", "Add", function(t)
 		t = (t or ""):gsub("^%s+", ""):gsub("%s+$", "")
 		if t == "" then U.notify("Nom vide") return end
+		for _, w in ipairs(Config.FlingAll.Whitelist) do
+			if w:lower() == t:lower() then U.notify("Déjà dans la whitelist") return end
+		end
 		table.insert(Config.FlingAll.Whitelist, t)
 		U.notify("Whitelist : " .. t)
 	end)
@@ -5244,7 +5287,10 @@ do
 		UIS.InputChanged:Connect(function(i)
 			if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = i.Position - dStart
-				dock.Position = UDim2.new(dPos.X.Scale, dPos.X.Offset + d.X, dPos.Y.Scale, dPos.Y.Offset + d.Y)
+				local vp = camera.ViewportSize
+				local px = math.clamp(dPos.X.Scale * vp.X + dPos.X.Offset + d.X, 120, math.max(vp.X + DOCK_W - 120, 120))
+				local py = math.clamp(dPos.Y.Scale * vp.Y + dPos.Y.Offset + d.Y, 40, math.max(vp.Y - 40, 40))
+				dock.Position = UDim2.fromOffset(px, py)
 			end
 		end)
 		UIS.InputEnded:Connect(function(i)
