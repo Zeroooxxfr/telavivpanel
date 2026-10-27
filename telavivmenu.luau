@@ -38,7 +38,7 @@ local Config = {
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
 		JumpPowerUp    = { Enum.KeyCode.Quote },
-		ToggleMenu     = { Enum.KeyCode.K, Enum.KeyCode.RightControl }, -- K = cacher / afficher le panel
+	    ToggleMenu     = { Enum.KeyCode.Return } -- Appuyer sur Entrée pour cacher / afficher le panel
 		FastMod        = { Enum.KeyCode.J },
 		AutoFire       = { Enum.KeyCode.O },
 		ClickTP        = { Enum.KeyCode.Y },
