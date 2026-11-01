@@ -38,7 +38,7 @@ local Config = {
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
 		JumpPowerUp    = { Enum.KeyCode.Quote },
-		ToggleMenu     = { Enum.KeyCode.K, Enum.KeyCode.RightControl }, -- K = cacher / afficher le panel
+		ToggleMenu     = { Enum.KeyCode.Return }, -- Seule la touche Entrée cache / affiche le panel
 		FastMod        = { Enum.KeyCode.J },
 		AutoFire       = { Enum.KeyCode.O },
 		ClickTP        = { Enum.KeyCode.Y },
@@ -64,6 +64,12 @@ local Config = {
 		VehicleMode = true, -- assis dans un véhicule : le véhicule vole (sinon tu es éjecté du siège et tu voles)
 		UpKey = Enum.KeyCode.Space,
 		DownKey = Enum.KeyCode.LeftControl,
+	},
+
+	Spin = {
+		Enabled = false,
+		Speed = 360, -- degrés par seconde
+		Step = 90,
 	},
 
 	Noclip = {
@@ -948,7 +954,7 @@ local function inWater(root, hum)
 	return waterCache
 end
 
-RunService.RenderStepped:Connect(function()
+RunService.RenderStepped:Connect(function(dt)
 	local _, hum, root = getChar()
 	if not hum then return end
 
@@ -1023,7 +1029,12 @@ RunService.RenderStepped:Connect(function()
 			if UIS:IsKeyDown(fly.UpKey) then dir += Vector3.yAxis end
 			if UIS:IsKeyDown(fly.DownKey) then dir -= Vector3.yAxis end
 		end
-		local vel = (dir.Magnitude > 0 and dir.Unit or Vector3.zero) * math.max(fly.Speed, 0)
+		local targetVel = (dir.Magnitude > 0 and dir.Unit or Vector3.zero) * math.max(fly.Speed, 0)
+		-- Accélération / décélération progressive, indépendante du framerate.
+		local response = 12
+		local alpha = 1 - math.exp(-response * math.max(dt, 0))
+		flyState.vel = flyState.vel:Lerp(targetVel, alpha)
+		local vel = flyState.vel
 
 		local seat = hum.SeatPart
 		if seat and fly.VehicleMode then
@@ -1066,6 +1077,15 @@ RunService.RenderStepped:Connect(function()
 	end
 
 	setInvisible(fly.Enabled and fly.Invisible)
+end)
+
+-- Spin personnel : rotation continue sur l'axe vertical, sans cibler ni affecter les autres joueurs.
+RunService.Stepped:Connect(function()
+	if not Config.Spin.Enabled then return end
+	local _, _, root = getChar()
+	if root and root.Parent then
+		root.AssemblyAngularVelocity = Vector3.new(0, math.rad(Config.Spin.Speed), 0)
+	end
 end)
 
 -- Fly : on réapplique la vitesse à chaque pas physique (sinon la gravité te fait descendre quand les FPS sont bas)
@@ -1661,7 +1681,28 @@ end)
 ----------------------------------------------------------------------
 -- Actions (AUCUNE limite haute : vitesse, saut, fling, fly)
 ----------------------------------------------------------------------
-local function setFly(v) Config.Fly.Enabled = v; refreshUI() end
+local function setFly(v)
+	Config.Fly.Enabled = v
+	if not v then
+		flyState.part = nil
+		flyState.vel = Vector3.zero
+	end
+	refreshUI()
+end
+local function setSpin(v)
+	Config.Spin.Enabled = v
+	if not v then
+		local _, _, root = getChar()
+		if root then
+			root.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+	refreshUI()
+end
+local function setSpinSpeed(v)
+	Config.Spin.Speed = math.max(0, v)
+	refreshUI()
+end
 local function setNoclip(v) Config.Noclip.Enabled = v; refreshUI() end
 local function setAimbot(v) Config.Aimbot.Enabled = v; refreshUI() end
 local function setSilent(v) Config.SilentAim.Enabled = v; refreshUI() end
@@ -3349,6 +3390,8 @@ do
 	makeStepper("Jump Power", function() return Config.Jump.Power end, setJumpPower, Config.Jump.Step, Config.Jump.Min, Config.Jump.Max)
 	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, "Alt")
 	makeStepper("Fly Speed", function() return Config.Fly.Speed end, setFlySpeed, Config.Fly.Step, 0, 300)
+	makeToggle("Spin (rotation perso)", function() return Config.Spin.Enabled end, setSpin)
+	makeStepper("Spin Speed (°/s)", function() return Config.Spin.Speed end, setSpinSpeed, Config.Spin.Step, 0, 3600)
 	cfgToggle("Fly Noclip", Config.Fly, "Noclip")
 	cfgToggle("Fly Invisible", Config.Fly, "Invisible")
 	makeToggle("Vehicle Mode", function() return Config.Fly.VehicleMode end, setFlyVehicle)
@@ -3554,7 +3597,7 @@ do
 	makeToggle("Animated Border", function() return M.AnimBorder end, function(v) M.AnimBorder = v; U.setShimmer(v); refreshUI() end)
 	cfgToggle("Show Notifications", Config.Notify, "Toggles")
 	makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
-	makeNote("K ou Ctrl droit : cacher / afficher le panel.")
+	makeNote("Entrée (ou K / Ctrl droit) : cacher / afficher le panel.")
 
 
 	----------------------------------------------------------------
@@ -3618,7 +3661,7 @@ do
 	V.miniBtn.MouseButton1Click:Connect(function() U.setMinimized(not N.minimized) end)
 	V.closeBtn.MouseButton1Click:Connect(function()
 		U.setOpen(false)
-		U.notify("Panel masqué : appuie sur K pour le rouvrir")
+		U.notify("Panel masqué : appuie sur Entrée pour le rouvrir")
 	end)
 
 	local function applyLayout()
