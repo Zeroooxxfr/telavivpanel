@@ -38,7 +38,7 @@ local Config = {
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
 		JumpPowerUp    = { Enum.KeyCode.Quote },
-		ToggleMenu     = { Enum.KeyCode.Return }, -- Seule la touche Entrée cache / affiche le panel
+		ToggleMenu     = { Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.K, Enum.KeyCode.RightControl }, -- Entrée (ou K / Ctrl droit) = cacher / afficher le panel
 		FastMod        = { Enum.KeyCode.J },
 		AutoFire       = { Enum.KeyCode.O },
 		ClickTP        = { Enum.KeyCode.Y },
@@ -59,17 +59,8 @@ local Config = {
 		Enabled = false,
 		Speed = 60,
 		Step = 10,
-		Noclip = true,
-		Invisible = true,
-		VehicleMode = true, -- assis dans un véhicule : le véhicule vole (sinon tu es éjecté du siège et tu voles)
 		UpKey = Enum.KeyCode.Space,
 		DownKey = Enum.KeyCode.LeftControl,
-	},
-
-	Spin = {
-		Enabled = false,
-		Speed = 360, -- degrés par seconde
-		Step = 90,
 	},
 
 	Noclip = {
@@ -284,16 +275,16 @@ local Config = {
 	Menu = {
 		Name = "telavivmenu",
 		Title = "Tel Aviv Menu",
-		Accent = Color3.fromRGB(36, 140, 255),
-		Blur = true,           -- flou d'arrière-plan quand le panel est ouvert
+		Accent = Color3.fromRGB(120, 90, 255),
+		Blur = false,           -- flou d'arrière-plan quand le panel est ouvert
 		BlurSize = 20,
-		Dim = 0.3,             -- assombrissement derrière le panel (0 à 1)
-		Animations = true,
-		AnimBorder = true,     -- bordure animée
-		Width = 1080,
-		Height = 680,
-		DefaultWidth = 1080,
-		DefaultHeight = 680,
+		Dim = 0,             -- assombrissement derrière le panel (0 à 1)
+		Animations = false,
+		AnimBorder = false,     -- bordure animée
+		Width = 820,
+		Height = 540,
+		DefaultWidth = 820,
+		DefaultHeight = 540,
 		StartPosition = UDim2.new(0.5, 0, 0.5, 0),
 	},}
 
@@ -853,45 +844,12 @@ end)
 end
 
 ----------------------------------------------------------------------
--- Invisibilité & Noclip
+-- Noclip
 ----------------------------------------------------------------------
-local hidden = {}
-local invisibleApplied = false
-
-local function hideInst(d)
-	if d:IsA("BasePart") or d:IsA("Decal") then
-		if hidden[d] == nil then hidden[d] = d.Transparency end
-		d.Transparency = 1
-	end
-end
-
-local function setInvisible(state)
-	if state == invisibleApplied then return end
-	local char, hum = getChar()
-	if not char then return end
-	invisibleApplied = state
-
-	if state then
-		for _, d in ipairs(char:GetDescendants()) do hideInst(d) end
-		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-	else
-		for d, t in pairs(hidden) do
-			if d.Parent then d.Transparency = t end
-		end
-		table.clear(hidden)
-		hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.Viewer
-	end
-end
-
 local savedCollide = {}
 
 local function onCharacter(char)
-	invisibleApplied = false
-	table.clear(hidden)
 	table.clear(savedCollide)
-	char.DescendantAdded:Connect(function(d)
-		if invisibleApplied then hideInst(d) end
-	end)
 end
 if player.Character then onCharacter(player.Character) end
 player.CharacterAdded:Connect(onCharacter)
@@ -900,7 +858,7 @@ RunService.Stepped:Connect(function()
 	local char = player.Character
 	if not char then return end
 
-	local want = (Config.Fly.Enabled and Config.Fly.Noclip) or (Config.Noclip.Enabled and not Config.WalkFling.Enabled)
+	local want = Config.Noclip.Enabled and not Config.WalkFling.Enabled
 	if want then
 		for _, p in ipairs(char:GetDescendants()) do
 			if p:IsA("BasePart") then
@@ -919,9 +877,6 @@ end)
 ----------------------------------------------------------------------
 -- Boucle principale
 ----------------------------------------------------------------------
-local wasFlying = false
-local flyState = { part = nil, vel = Vector3.zero } -- réappliqué aussi à chaque pas physique (pas de dérive à bas FPS)
-local seatedDisabled = false
 local lastHum = nil
 local origWalk = nil
 local origJump = nil
@@ -954,7 +909,7 @@ local function inWater(root, hum)
 	return waterCache
 end
 
-RunService.RenderStepped:Connect(function(dt)
+RunService.RenderStepped:Connect(function()
 	local _, hum, root = getChar()
 	if not hum then return end
 
@@ -963,7 +918,6 @@ RunService.RenderStepped:Connect(function(dt)
 	-- nouveau personnage (respawn) : on repart de zéro
 	if hum ~= lastHum then
 		lastHum = hum
-		seatedDisabled = false
 		origWalk, origJump, origSwim = nil, nil, nil
 	end
 
@@ -1013,12 +967,52 @@ RunService.RenderStepped:Connect(function(dt)
 		hum.WalkSpeed = origSwim
 		origSwim = nil
 	end
+end)
 
-	flyState.part = nil
-	if fly.Enabled then
-		wasFlying = true
+----------------------------------------------------------------------
+-- Fly classique : BodyVelocity + BodyGyro
+-- WASD = avancer selon la caméra, Espace = monter, Ctrl gauche = descendre
+----------------------------------------------------------------------
+do
+	local bv, bg
 
-		-- pas de déplacement quand on tape dans le chat / une zone de texte
+	local function clear()
+		if bv then bv:Destroy() bv = nil end
+		if bg then bg:Destroy() bg = nil end
+		local _, hum = getChar()
+		if hum then
+			hum.PlatformStand = false
+			hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+		end
+	end
+
+	RunService.RenderStepped:Connect(function()
+		local fly = Config.Fly
+		local _, hum, root = getChar()
+		if not (fly.Enabled and hum and root and hum.Health > 0) then
+			if bv or bg then clear() end
+			return
+		end
+
+		if not bv or bv.Parent ~= root then
+			if bv then bv:Destroy() end
+			bv = Instance.new("BodyVelocity")
+			bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+			bv.Velocity = Vector3.zero
+			bv.Parent = root
+		end
+		if not bg or bg.Parent ~= root then
+			if bg then bg:Destroy() end
+			bg = Instance.new("BodyGyro")
+			bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+			bg.P = 9e4
+			bg.D = 1e3
+			bg.CFrame = camera.CFrame
+			bg.Parent = root
+		end
+
+		hum.PlatformStand = true
+
 		local dir = Vector3.zero
 		local cf = camera.CFrame
 		if not UIS:GetFocusedTextBox() then
@@ -1029,72 +1023,10 @@ RunService.RenderStepped:Connect(function(dt)
 			if UIS:IsKeyDown(fly.UpKey) then dir += Vector3.yAxis end
 			if UIS:IsKeyDown(fly.DownKey) then dir -= Vector3.yAxis end
 		end
-		local targetVel = (dir.Magnitude > 0 and dir.Unit or Vector3.zero) * math.max(fly.Speed, 0)
-		-- Accélération / décélération progressive, indépendante du framerate.
-		local response = 12
-		local alpha = 1 - math.exp(-response * math.max(dt, 0))
-		flyState.vel = flyState.vel:Lerp(targetVel, alpha)
-		local vel = flyState.vel
-
-		local seat = hum.SeatPart
-		if seat and fly.VehicleMode then
-			-- Assis : c'est le véhicule qui vole
-			if seatedDisabled then
-				hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
-				seatedDisabled = false
-			end
-			local base = seat.AssemblyRootPart or seat
-			base.AssemblyLinearVelocity = vel
-			base.AssemblyAngularVelocity = Vector3.zero
-			flyState.part, flyState.vel = base, vel
-		else
-			-- Pas de véhicule (ou mode détaché) : on éjecte du siège et on vole
-			if seat then
-				local w = seat:FindFirstChild("SeatWeld")
-				if w then w:Destroy() end
-				hum.Sit = false
-			end
-			if not seatedDisabled then
-				hum:SetStateEnabled(Enum.HumanoidStateType.Seated, false)
-				seatedDisabled = true
-			end
-			hum.PlatformStand = true
-			root.AssemblyLinearVelocity = vel
-			flyState.part, flyState.vel = root, vel
-			local flat = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
-			if flat.Magnitude > 0.01 then
-				root.CFrame = CFrame.lookAt(root.Position, root.Position + flat)
-			end
-		end
-	elseif wasFlying then
-		wasFlying = false
-		hum.PlatformStand = false
-		hum:ChangeState(Enum.HumanoidStateType.GettingUp)
-		if seatedDisabled then
-			hum:SetStateEnabled(Enum.HumanoidStateType.Seated, true)
-			seatedDisabled = false
-		end
-	end
-
-	setInvisible(fly.Enabled and fly.Invisible)
-end)
-
--- Spin personnel : rotation continue sur l'axe vertical, sans cibler ni affecter les autres joueurs.
-RunService.Stepped:Connect(function()
-	if not Config.Spin.Enabled then return end
-	local _, _, root = getChar()
-	if root and root.Parent then
-		root.AssemblyAngularVelocity = Vector3.new(0, math.rad(Config.Spin.Speed), 0)
-	end
-end)
-
--- Fly : on réapplique la vitesse à chaque pas physique (sinon la gravité te fait descendre quand les FPS sont bas)
-RunService.Stepped:Connect(function()
-	local part = flyState.part
-	if part and part.Parent and Config.Fly.Enabled then
-		part.AssemblyLinearVelocity = flyState.vel
-	end
-end)
+		bv.Velocity = dir.Magnitude > 0 and dir.Unit * math.max(fly.Speed, 0) or Vector3.zero
+		bg.CFrame = cf
+	end)
+end
 
 -- Aimbot : la caméra vise la cible (appliqué APRÈS le script caméra de Roblox)
 -- Smoothness indépendante des FPS ; option "maintenir clic droit" ; pas d'aim pendant la saisie / dans le menu
@@ -1241,7 +1173,7 @@ local function applyESP(plr)
 		local lbl = Instance.new("TextLabel")
 		lbl.BackgroundTransparency = 1
 		lbl.Size = UDim2.new(1, 0, 1, 0)
-		lbl.Font = Enum.Font.GothamBold
+		lbl.Font = Enum.Font.Code
 		lbl.TextSize = 14
 		lbl.TextColor3 = s.OutlineColor
 		lbl.TextStrokeTransparency = 0.4
@@ -1681,28 +1613,7 @@ end)
 ----------------------------------------------------------------------
 -- Actions (AUCUNE limite haute : vitesse, saut, fling, fly)
 ----------------------------------------------------------------------
-local function setFly(v)
-	Config.Fly.Enabled = v
-	if not v then
-		flyState.part = nil
-		flyState.vel = Vector3.zero
-	end
-	refreshUI()
-end
-local function setSpin(v)
-	Config.Spin.Enabled = v
-	if not v then
-		local _, _, root = getChar()
-		if root then
-			root.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
-	refreshUI()
-end
-local function setSpinSpeed(v)
-	Config.Spin.Speed = math.max(0, v)
-	refreshUI()
-end
+local function setFly(v) Config.Fly.Enabled = v; refreshUI() end
 local function setNoclip(v) Config.Noclip.Enabled = v; refreshUI() end
 local function setAimbot(v) Config.Aimbot.Enabled = v; refreshUI() end
 local function setSilent(v) Config.SilentAim.Enabled = v; refreshUI() end
@@ -1724,7 +1635,6 @@ local function setWalkFling(v)
 end
 local function setClickTP(v) Config.TP.ClickTP = v; refreshUI() end
 local function setInfJump(v) Config.InfJump.Enabled = v; refreshUI() end
-local function setFlyVehicle(v) Config.Fly.VehicleMode = v; refreshUI() end
 local function setFlingPower(v)
 	Config.WalkFling.Power = math.max(math.floor(v), 0) -- aucune limite haute
 	refreshUI()
@@ -1980,18 +1890,18 @@ do
 	local TextService = game:GetService("TextService")
 
 	local T = {
-		Bg        = Color3.fromRGB(6, 11, 26),
-		Panel     = Color3.fromRGB(9, 18, 42),
-		Card      = Color3.fromRGB(12, 25, 58),
-		CardHover = Color3.fromRGB(21, 44, 96),
-		Stroke    = Color3.fromRGB(30, 72, 150),
-		Off       = Color3.fromRGB(54, 66, 100),
+		Bg        = Color3.fromRGB(14, 14, 16),
+		Panel     = Color3.fromRGB(18, 18, 21),
+		Card      = Color3.fromRGB(24, 24, 28),
+		CardHover = Color3.fromRGB(38, 38, 45),
+		Stroke    = Color3.fromRGB(50, 50, 58),
+		Off       = Color3.fromRGB(48, 48, 55),
 		Accent    = M.Accent,
-		Text      = Color3.fromRGB(232, 240, 255),
-		SubText   = Color3.fromRGB(140, 162, 205),
-		On        = Color3.fromRGB(52, 199, 120),
-		Danger    = Color3.fromRGB(240, 82, 82),
-		Dark      = Color3.fromRGB(5, 9, 20),
+		Text      = Color3.fromRGB(225, 225, 230),
+		SubText   = Color3.fromRGB(135, 135, 145),
+		On        = Color3.fromRGB(120, 90, 255),
+		Danger    = Color3.fromRGB(235, 70, 70),
+		Dark      = Color3.fromRGB(10, 10, 12),
 	}
 	U.T = T
 
@@ -2009,7 +1919,7 @@ do
 
 	local function corner(inst, r)
 		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, r or 8)
+		c.CornerRadius = UDim.new(0, (r and r >= 100) and 2 or math.min(r or 2, 3))
 		c.Parent = inst
 		return c
 	end
@@ -2026,7 +1936,7 @@ do
 	local function newLabel(parent, text, size, color, font)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
-		l.Font = font or Enum.Font.GothamMedium
+		l.Font = font or Enum.Font.Code
 		l.TextSize = size or 14
 		l.TextColor3 = color or T.Text
 		l.TextXAlignment = Enum.TextXAlignment.Left
@@ -2116,8 +2026,8 @@ do
 	----------------------------------------------------------------
 	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
-	local HEAD_H = 64
-	local SIDE_W = 200
+	local HEAD_H = 44
+	local SIDE_W = 150
 	local FULL = UDim2.new(0, M.Width, 0, M.Height)
 
 	local main = Instance.new("Frame")
@@ -2126,7 +2036,7 @@ do
 	main.Position = M.StartPosition
 	main.Size = FULL
 	main.BackgroundColor3 = Color3.new(1, 1, 1)
-	main.BackgroundTransparency = 0.04
+	main.BackgroundTransparency = 0
 	main.BorderSizePixel = 0
 	main.Active = true
 	main.ClipsDescendants = true
@@ -2141,15 +2051,15 @@ do
 
 	do
 		local bg = Instance.new("UIGradient")
-		bg.Color = ColorSequence.new(Color3.fromRGB(13, 26, 62), Color3.fromRGB(5, 9, 22))
+		bg.Color = ColorSequence.new(Color3.fromRGB(16, 16, 19), Color3.fromRGB(12, 12, 14))
 		bg.Rotation = 125
 		bg.Parent = main
 
 		-- bordure animée
 		local ms = Instance.new("UIStroke")
 		ms.Color = Color3.new(1, 1, 1)
-		ms.Thickness = 2
-		ms.Transparency = 0.2
+		ms.Thickness = 1
+		ms.Transparency = 0
 		ms.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
 		ms.Parent = main
 		local mg = accentGradient(ms, 0)
@@ -2160,6 +2070,7 @@ do
 
 	-- ripple (onde au clic) : l'hôte doit avoir ClipsDescendants = true
 	local function ripple(host)
+		if true then return end
 		local m = UIS:GetMouseLocation()
 		local abs, s = host.AbsolutePosition, scale.Scale
 		local d = math.max(host.AbsoluteSize.X, host.AbsoluteSize.Y) * 1.7 / s
@@ -2230,7 +2141,7 @@ do
 			dot.BorderSizePixel = 0
 			dot.Parent = f
 			corner(dot, 4)
-			local l = newLabel(f, text, 14, T.Text, Enum.Font.GothamMedium)
+			local l = newLabel(f, text, 14, T.Text, Enum.Font.Code)
 			l.Position = UDim2.new(0, 32, 0, 0)
 			l.Size = UDim2.new(1, -44, 1, 0)
 			l.TextTransparency = 1
@@ -2314,19 +2225,19 @@ do
 		local lt = Instance.new("TextLabel")
 		lt.BackgroundTransparency = 1
 		lt.Size = UDim2.new(1, 0, 1, 0)
-		lt.Font = Enum.Font.GothamBlack
+		lt.Font = Enum.Font.Code
 		lt.TextSize = 20
 		lt.TextColor3 = Color3.new(1, 1, 1)
 		lt.Text = "T"
 		lt.ZIndex = 7
 		lt.Parent = logo
 
-		local tw1 = TextService:GetTextSize("Tel Aviv", 20, Enum.Font.GothamBlack, Vector2.new(400, 30)).X
-		local title = newLabel(header, "Tel Aviv", 20, T.Text, Enum.Font.GothamBlack)
+		local tw1 = TextService:GetTextSize("Tel Aviv", 20, Enum.Font.Code, Vector2.new(400, 30)).X
+		local title = newLabel(header, "Tel Aviv", 20, T.Text, Enum.Font.Code)
 		title.Position = UDim2.new(0, 64, 0.5, -20)
 		title.Size = UDim2.new(0, tw1, 0, 24)
 		title.ZIndex = 6
-		local title2 = newLabel(header, "Menu", 20, T.Accent, Enum.Font.GothamBlack)
+		local title2 = newLabel(header, "Menu", 20, T.Accent, Enum.Font.Code)
 		title2.Position = UDim2.new(0, 64 + tw1 + 6, 0.5, -20)
 		title2.Size = UDim2.new(0, 60, 0, 24)
 		title2.ZIndex = 6
@@ -2336,14 +2247,14 @@ do
 		ver.BackgroundColor3 = T.Accent
 		ver.BackgroundTransparency = 0.7
 		ver.BorderSizePixel = 0
-		ver.Font = Enum.Font.GothamBold
+		ver.Font = Enum.Font.Code
 		ver.TextSize = 11
 		ver.TextColor3 = T.Text
 		ver.Text = "v5"
 		ver.ZIndex = 6
 		ver.Parent = header
 		corner(ver, 9)
-		local sub = newLabel(header, "More Power. No Limits.", 11, T.SubText, Enum.Font.Gotham)
+		local sub = newLabel(header, "external", 11, T.SubText, Enum.Font.Code)
 		sub.Position = UDim2.new(0, 64, 0.5, 6)
 		sub.Size = UDim2.new(0, 190, 0, 14)
 		sub.ZIndex = 6
@@ -2359,7 +2270,7 @@ do
 			b.Size = UDim2.new(0, 32, 0, 32)
 			b.BackgroundColor3 = T.Card
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.GothamBold
+			b.Font = Enum.Font.Code
 			b.TextSize = 15
 			b.TextColor3 = T.SubText
 			b.Text = text
@@ -2422,7 +2333,7 @@ do
 			l.Position = UDim2.new(0, 16, 0, 0)
 			l.Size = UDim2.new(0, 0, 1, 0)
 			l.AutomaticSize = Enum.AutomaticSize.X
-			l.Font = Enum.Font.GothamMedium
+			l.Font = Enum.Font.Code
 			l.TextSize = 12
 			l.TextColor3 = T.SubText
 			l.ZIndex = 7
@@ -2551,13 +2462,13 @@ do
 			local ic = Instance.new("TextLabel")
 			ic.BackgroundTransparency = 1
 			ic.Size = UDim2.new(0, 44, 1, 0)
-			ic.Font = Enum.Font.GothamMedium
+			ic.Font = Enum.Font.Code
 			ic.TextSize = 18
 			ic.TextColor3 = T.Text
 			ic.Text = icon
 			ic.ZIndex = 6
 			ic.Parent = item
-			local tx = newLabel(item, name, 14, T.SubText, Enum.Font.GothamMedium)
+			local tx = newLabel(item, name, 14, T.SubText, Enum.Font.Code)
 			tx.Position = UDim2.new(0, 44, 0, 0)
 			tx.Size = UDim2.new(1, -48, 1, 0)
 			tx.ZIndex = 6
@@ -2603,12 +2514,12 @@ do
 			end)
 			if ok and av.Parent then av.Image = img end
 		end)
-		local nm = newLabel(card, player.DisplayName, 13, T.Text, Enum.Font.GothamBold)
+		local nm = newLabel(card, player.DisplayName, 13, T.Text, Enum.Font.Code)
 		nm.Position = UDim2.new(0, 56, 0, 9)
 		nm.Size = UDim2.new(1, -64, 0, 18)
 		nm.ZIndex = 4
 		nm.TextTruncate = Enum.TextTruncate.AtEnd
-		local st2 = newLabel(card, "@" .. player.Name, 11, T.SubText, Enum.Font.Gotham)
+		local st2 = newLabel(card, "@" .. player.Name, 11, T.SubText, Enum.Font.Code)
 		st2.Position = UDim2.new(0, 56, 0, 28)
 		st2.Size = UDim2.new(1, -64, 0, 16)
 		st2.ZIndex = 4
@@ -2751,7 +2662,7 @@ do
 		ic.BackgroundTransparency = 1
 		ic.Position = UDim2.new(0, 12, 0, 0)
 		ic.Size = UDim2.new(0, 20, 1, 0)
-		ic.Font = Enum.Font.GothamMedium
+		ic.Font = Enum.Font.Code
 		ic.TextSize = 14
 		ic.TextColor3 = T.SubText
 		ic.Text = "🔍"
@@ -2762,7 +2673,7 @@ do
 		box.BackgroundTransparency = 1
 		box.Position = UDim2.new(0, 38, 0, 0)
 		box.Size = UDim2.new(1, -48, 1, 0)
-		box.Font = Enum.Font.GothamMedium
+		box.Font = Enum.Font.Code
 		box.TextSize = 13
 		box.TextColor3 = T.Text
 		box.PlaceholderText = "Rechercher une option..."
@@ -2835,7 +2746,7 @@ do
 			end
 			local shown = math.min(#results, 8)
 			if shown == 0 then
-				local l = newLabel(drop, "Aucun résultat", 13, T.SubText, Enum.Font.GothamMedium)
+				local l = newLabel(drop, "Aucun résultat", 13, T.SubText, Enum.Font.Code)
 				l.Size = UDim2.new(1, 0, 0, 34)
 				l.ZIndex = 21
 				local pd = Instance.new("UIPadding", l)
@@ -2854,12 +2765,12 @@ do
 				b.ZIndex = 21
 				b.Parent = drop
 				corner(b, 8)
-				local t1 = newLabel(b, e.text, 13, T.Text, Enum.Font.GothamMedium)
+				local t1 = newLabel(b, e.text, 13, T.Text, Enum.Font.Code)
 				t1.Position = UDim2.new(0, 10, 0, 4)
 				t1.Size = UDim2.new(1, -20, 0, 18)
 				t1.ZIndex = 22
 				t1.TextTruncate = Enum.TextTruncate.AtEnd
-				local t2 = newLabel(b, e.card.title, 11, T.SubText, Enum.Font.Gotham)
+				local t2 = newLabel(b, e.card.title, 11, T.SubText, Enum.Font.Code)
 				t2.Position = UDim2.new(0, 10, 0, 21)
 				t2.Size = UDim2.new(1, -20, 0, 15)
 				t2.ZIndex = 22
@@ -2935,12 +2846,12 @@ do
 		local ic = Instance.new("TextLabel")
 		ic.BackgroundTransparency = 1
 		ic.Size = UDim2.new(0, 24, 0, 24)
-		ic.Font = Enum.Font.GothamBold
+		ic.Font = Enum.Font.Code
 		ic.TextSize = 17
 		ic.TextColor3 = T.Accent
 		ic.Text = icon
 		ic.Parent = hd
-		local tl = newLabel(hd, title, 15, T.Text, Enum.Font.GothamBold)
+		local tl = newLabel(hd, title, 15, T.Text, Enum.Font.Code)
 		tl.Position = UDim2.new(0, 30, 0, 0)
 		tl.Size = UDim2.new(1, -30, 0, 24)
 		local ln = Instance.new("Frame")
@@ -2994,7 +2905,7 @@ do
 	end
 
 	local function rowLabel(row, text, w)
-		local l = newLabel(row, text, 13, T.Text, Enum.Font.GothamMedium)
+		local l = newLabel(row, text, 13, T.Text, Enum.Font.Code)
 		l.Position = UDim2.new(0, 4, 0, 0)
 		l.Size = w or UDim2.new(1, -60, 1, 0)
 		l.TextTruncate = Enum.TextTruncate.AtEnd
@@ -3005,7 +2916,7 @@ do
 	local function makeSub(text)
 		local r = addRow(26)
 		r.ClipsDescendants = false
-		local l = newLabel(r, text, 13, T.Text, Enum.Font.GothamBold)
+		local l = newLabel(r, text, 13, T.Text, Enum.Font.Code)
 		l.Position = UDim2.new(0, 2, 0, 6)
 		l.Size = UDim2.new(1, 0, 0, 18)
 		local ln = Instance.new("Frame")
@@ -3017,9 +2928,9 @@ do
 	end
 
 	local function makeNote(text)
-		local h = TextService:GetTextSize(text, 11, Enum.Font.Gotham, Vector2.new(240, 2000)).Y + 6
+		local h = TextService:GetTextSize(text, 11, Enum.Font.Code, Vector2.new(240, 2000)).Y + 6
 		local r = addRow(h)
-		local l = newLabel(r, text, 11, T.SubText, Enum.Font.Gotham)
+		local l = newLabel(r, text, 11, T.SubText, Enum.Font.Code)
 		l.Position = UDim2.new(0, 4, 0, 2)
 		l.Size = UDim2.new(1, -8, 1, -2)
 		l.TextWrapped = true
@@ -3058,7 +2969,7 @@ do
 			badge.AutomaticSize = Enum.AutomaticSize.X
 			badge.BackgroundColor3 = T.Bg
 			badge.BorderSizePixel = 0
-			badge.Font = Enum.Font.GothamBold
+			badge.Font = Enum.Font.Code
 			badge.TextSize = 10
 			badge.TextColor3 = T.SubText
 			badge.Text = keyText
@@ -3099,7 +3010,7 @@ do
 		b.BackgroundColor3 = T.Bg
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = false
-		b.Font = Enum.Font.GothamBold
+		b.Font = Enum.Font.Code
 		b.TextSize = 13
 		b.TextColor3 = T.Text
 		b.Text = text
@@ -3117,7 +3028,7 @@ do
 		box.Size = UDim2.new(0, w, 0, h)
 		box.BackgroundColor3 = T.Bg
 		box.BorderSizePixel = 0
-		box.Font = Enum.Font.GothamBold
+		box.Font = Enum.Font.Code
 		box.TextSize = size or 12
 		box.TextColor3 = T.Text
 		box.ClearTextOnFocus = false
@@ -3260,7 +3171,7 @@ do
 	local function makeTextAction(text, placeholder, buttonText, callback)
 		local row = addRow(30)
 		local box = makeBox(row, 0, 24, 11)
-		box.Font = Enum.Font.GothamMedium
+		box.Font = Enum.Font.Code
 		box.AnchorPoint = Vector2.new(0, 0.5)
 		box.Size = UDim2.new(1, -64, 0, 24)
 		box.Position = UDim2.new(0, 0, 0.5, 0)
@@ -3274,7 +3185,7 @@ do
 		btn.BackgroundColor3 = T.Accent
 		btn.BorderSizePixel = 0
 		btn.AutoButtonColor = true
-		btn.Font = Enum.Font.GothamBold
+		btn.Font = Enum.Font.Code
 		btn.TextSize = 12
 		btn.TextColor3 = Color3.new(1, 1, 1)
 		btn.Text = buttonText
@@ -3291,7 +3202,7 @@ do
 
 	local function makeSegment(text, options, getter, setter)
 		local row = addRow(50)
-		local l = newLabel(row, text, 11, T.SubText, Enum.Font.GothamMedium)
+		local l = newLabel(row, text, 11, T.SubText, Enum.Font.Code)
 		l.Position = UDim2.new(0, 4, 0, 0)
 		l.Size = UDim2.new(1, -8, 0, 18)
 		local holder = Instance.new("Frame")
@@ -3310,7 +3221,7 @@ do
 			b.Size = UDim2.new(1 / n, -4 * (n - 1) / n, 1, 0)
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.GothamMedium
+			b.Font = Enum.Font.Code
 			b.TextSize = 12
 			b.Text = opt[1]
 			b.ZIndex = 4
@@ -3331,7 +3242,7 @@ do
 
 	local function makeSwatches(text, colors, onPick)
 		local row = addRow(50)
-		local l = newLabel(row, text, 11, T.SubText, Enum.Font.GothamMedium)
+		local l = newLabel(row, text, 11, T.SubText, Enum.Font.Code)
 		l.Position = UDim2.new(0, 4, 0, 0)
 		l.Size = UDim2.new(1, -8, 0, 18)
 		local holder = Instance.new("Frame")
@@ -3390,11 +3301,7 @@ do
 	makeStepper("Jump Power", function() return Config.Jump.Power end, setJumpPower, Config.Jump.Step, Config.Jump.Min, Config.Jump.Max)
 	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, "Alt")
 	makeStepper("Fly Speed", function() return Config.Fly.Speed end, setFlySpeed, Config.Fly.Step, 0, 300)
-	makeToggle("Spin (rotation perso)", function() return Config.Spin.Enabled end, setSpin)
-	makeStepper("Spin Speed (°/s)", function() return Config.Spin.Speed end, setSpinSpeed, Config.Spin.Step, 0, 3600)
-	cfgToggle("Fly Noclip", Config.Fly, "Noclip")
-	cfgToggle("Fly Invisible", Config.Fly, "Invisible")
-	makeToggle("Vehicle Mode", function() return Config.Fly.VehicleMode end, setFlyVehicle)
+	makeNote("Fly classique : WASD + Espace / Ctrl gauche")
 
 	makeCard("Nage", "≈", { "Home", "Movement" })
 	makeToggle("Vitesse de nage perso", function() return Config.Swim.Enabled end, setSwimEnabled)
@@ -3702,7 +3609,7 @@ do
 		grip.Position = UDim2.new(1, -5, 1, -5)
 		grip.Size = UDim2.new(0, 20, 0, 20)
 		grip.BackgroundTransparency = 1
-		grip.Font = Enum.Font.GothamBold
+		grip.Font = Enum.Font.Code
 		grip.TextSize = 14
 		grip.TextColor3 = T.SubText
 		grip.Text = "◢"
@@ -4804,7 +4711,7 @@ do
 	end
 
 	function W.header(text)
-		local l = newLabel(opts, text:upper(), 11, T.Accent, Enum.Font.GothamBold)
+		local l = newLabel(opts, text:upper(), 11, T.Accent, Enum.Font.Code)
 		l.LayoutOrder = nextO()
 		l.Size = UDim2.new(1, 0, 0, 22)
 		l.TextYAlignment = Enum.TextYAlignment.Bottom
@@ -4812,7 +4719,7 @@ do
 	end
 
 	function W.note(text)
-		local l = newLabel(opts, text, 12, T.SubText, Enum.Font.Gotham)
+		local l = newLabel(opts, text, 12, T.SubText, Enum.Font.Code)
 		l.LayoutOrder = nextO()
 		l.Size = UDim2.new(1, 0, 0, 0)
 		l.AutomaticSize = Enum.AutomaticSize.Y
@@ -4840,7 +4747,7 @@ do
 		b.BackgroundColor3 = kind == "primary" and T.Accent or T.Card
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
-		b.Font = Enum.Font.GothamMedium
+		b.Font = Enum.Font.Code
 		b.TextSize = 13
 		b.TextColor3 = kind == "primary" and T.Dark or (kind == "danger" and T.Danger or T.Text)
 		b.Text = text
@@ -4853,7 +4760,7 @@ do
 
 	function W.input(label, get, set, isText)
 		local row = W.card(34)
-		local l = newLabel(row, label, 13, T.Text, Enum.Font.GothamMedium)
+		local l = newLabel(row, label, 13, T.Text, Enum.Font.Code)
 		l.Position = UDim2.new(0, 12, 0, 0)
 		l.Size = UDim2.new(1, -124, 1, 0)
 		l.TextTruncate = Enum.TextTruncate.AtEnd
@@ -4863,7 +4770,7 @@ do
 		box.Size = UDim2.new(0, 104, 0, 24)
 		box.BackgroundColor3 = T.Bg
 		box.BorderSizePixel = 0
-		box.Font = Enum.Font.GothamBold
+		box.Font = Enum.Font.Code
 		box.TextSize = 13
 		box.TextColor3 = T.Text
 		box.ClearTextOnFocus = false
@@ -4894,7 +4801,7 @@ do
 
 	function W.toggle(label, get, set)
 		local row = W.card(34)
-		local l = newLabel(row, label, 13, T.Text, Enum.Font.GothamMedium)
+		local l = newLabel(row, label, 13, T.Text, Enum.Font.Code)
 		l.Position = UDim2.new(0, 12, 0, 0)
 		l.Size = UDim2.new(1, -70, 1, 0)
 		l.TextTruncate = Enum.TextTruncate.AtEnd
@@ -4961,7 +4868,7 @@ do
 			b.LayoutOrder = i
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.GothamMedium
+			b.Font = Enum.Font.Code
 			b.TextSize = 12
 			b.Text = label
 			b.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5213,7 +5120,7 @@ do
 	function W.build()
 		W.clear()
 		local card = W.card(46)
-		infoLabel = newLabel(card, S.summary(), 12, T.Text, Enum.Font.GothamMedium)
+		infoLabel = newLabel(card, S.summary(), 12, T.Text, Enum.Font.Code)
 		infoLabel.Position = UDim2.new(0, 12, 0, 0)
 		infoLabel.Size = UDim2.new(1, -24, 1, 0)
 		infoLabel.TextWrapped = true
@@ -5296,10 +5203,10 @@ do
 		line.BackgroundColor3 = T.Accent
 		line.BorderSizePixel = 0
 		line.Parent = titleBar
-		local title = newLabel(titleBar, "🔨  BTools", 16, T.Text, Enum.Font.GothamBlack)
+		local title = newLabel(titleBar, "🔨  BTools", 16, T.Text, Enum.Font.Code)
 		title.Position = UDim2.new(0, 14, 0, 0)
 		title.Size = UDim2.new(0.5, 0, 1, -2)
-		local selChip = newLabel(titleBar, "0 sél.", 12, T.SubText, Enum.Font.GothamMedium)
+		local selChip = newLabel(titleBar, "0 sél.", 12, T.SubText, Enum.Font.Code)
 		selChip.AnchorPoint = Vector2.new(1, 0.5)
 		selChip.Position = UDim2.new(1, -50, 0.5, -1)
 		selChip.Size = UDim2.new(0, 80, 0, 20)
@@ -5310,7 +5217,7 @@ do
 		closeD.Size = UDim2.new(0, 28, 0, 28)
 		closeD.BackgroundColor3 = T.Card
 		closeD.AutoButtonColor = false
-		closeD.Font = Enum.Font.GothamBold
+		closeD.Font = Enum.Font.Code
 		closeD.TextSize = 14
 		closeD.TextColor3 = T.Text
 		closeD.Text = "X"
@@ -5361,7 +5268,7 @@ do
 			b.BackgroundColor3 = T.Card
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.GothamMedium
+			b.Font = Enum.Font.Code
 			b.TextSize = 11
 			b.RichText = true
 			b.TextColor3 = T.Text
@@ -5396,7 +5303,7 @@ do
 			b.BackgroundColor3 = T.Card
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = true
-			b.Font = Enum.Font.GothamMedium
+			b.Font = Enum.Font.Code
 			b.TextSize = 12
 			b.TextColor3 = T.Text
 			b.Text = text
