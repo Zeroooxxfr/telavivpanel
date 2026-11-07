@@ -186,6 +186,10 @@ local Config = {
 		MaxPerFrame = 60,
 	},
 
+	Wallbang = {
+		Enabled = false,
+	},
+
 	SilentAim = {
 		Enabled = false,
 		FOV = 250,
@@ -664,6 +668,7 @@ end
 
 -- visible = aucun mur solide entre la caméra et la cible (ignore les parts invisibles / non solides)
 local function isVisible(part)
+	if Config.Wallbang.Enabled then return true end -- wallbang : les murs ne bloquent plus la visée
 	local origin = camera.CFrame.Position
 	local dir = part.Position - origin
 	local ignore = { player.Character }
@@ -856,6 +861,51 @@ pcall(function()
 		return old(self, key)
 	end))
 end)
+end
+
+----------------------------------------------------------------------
+-- Wallbang : les tirs (Raycast du jeu) traversent les murs.
+-- Executor uniquement (hookmetamethod/checkcaller) ; sinon ignoré sans erreur.
+-- Les raycasts du jeu ne touchent plus que les personnages des autres joueurs.
+----------------------------------------------------------------------
+do
+	local chars, nextBuild = {}, 0
+	local function enemyChars()
+		local now = os.clock()
+		if now > nextBuild then
+			nextBuild = now + 0.25
+			chars = {}
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player and p.Character then table.insert(chars, p.Character) end
+			end
+		end
+		return chars
+	end
+
+	pcall(function()
+		if typeof(hookmetamethod) ~= "function" or typeof(checkcaller) ~= "function"
+			or typeof(getnamecallmethod) ~= "function" then return end
+		local old
+		local wrap = typeof(newcclosure) == "function" and newcclosure or function(f) return f end
+		old = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+			if Config.Wallbang.Enabled and self == workspace and not checkcaller()
+				and getnamecallmethod() == "Raycast" then
+				local origin, dir, params = ...
+				if typeof(origin) == "Vector3" and typeof(dir) == "Vector3" then
+					local np = RaycastParams.new()
+					if typeof(params) == "RaycastParams" then
+						np.IgnoreWater = params.IgnoreWater
+						np.CollisionGroup = params.CollisionGroup
+						np.RespectCanCollide = params.RespectCanCollide
+					end
+					np.FilterType = Enum.RaycastFilterType.Include
+					np.FilterDescendantsInstances = enemyChars()
+					return old(self, origin, dir, np)
+				end
+			end
+			return old(self, ...)
+		end))
+	end)
 end
 
 ----------------------------------------------------------------------
@@ -3415,6 +3465,10 @@ do
 	cfgStep("Silent Aim : Hit Chance (%)", Config.SilentAim, "HitChance", 5, 1, 100,
 		function() Config.SilentAim.HitChance = math.clamp(Config.SilentAim.HitChance, 0, 100) end)
 	makeNote("Le cercle FOV s'affiche si \"FOV Circle\" est activé (onglet Visuals). Silent Aim : le jeu doit appeler _G.DevTools.GetAimPosition(...), ou un executor avec hookmetamethod le branche tout seul sur mouse.Hit.")
+
+	makeCard("Wallbang", "▦", { "Home", "Combat" })
+	makeToggle("Wallbang", function() return Config.Wallbang.Enabled end, function(v) Config.Wallbang.Enabled = v; refreshUI() end)
+	makeNote("Tirer à travers les murs : l'aimbot/silent aim ignorent les murs, et (executor) les raycasts du jeu ne touchent que les joueurs. Dépend de la façon dont le jeu gère ses tirs.")
 
 	makeCard("Camlock", "⌖", { "Home", "Combat" })
 	makeToggle("Camlock", function() return Config.Camlock.Enabled end, setCamlock, keyLabel(Config.Keys.Camlock))
