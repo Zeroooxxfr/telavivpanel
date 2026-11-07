@@ -21,7 +21,7 @@ local mouse = player:GetMouse()
 ----------------------------------------------------------------------
 local Config = {
 	Keys = {
-		Fly           = { Enum.KeyCode.LeftAlt, Enum.KeyCode.RightAlt },
+		Fly           = { Enum.KeyCode.F },
 		Noclip        = { Enum.KeyCode.N },
 		Aimbot        = { Enum.KeyCode.G },
 		SilentAim     = { Enum.KeyCode.I },
@@ -33,7 +33,7 @@ local Config = {
 		WalkSpeedDown = { Enum.KeyCode.Minus },
 		WalkSpeedUp   = { Enum.KeyCode.Equals },
 		WalkFling     = { Enum.KeyCode.T },
-		FlingAll      = { Enum.KeyCode.F },
+		FlingAll      = {}, -- aucune touche
 		FlingPowerDown = { Enum.KeyCode.Comma },
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
@@ -59,6 +59,15 @@ local Config = {
 		Enabled = false,
 		Speed = 20,   -- tours par seconde
 		Step = 2,
+	},
+
+	Orbit = {
+		Enabled = false,
+		Speed = 3,     -- rad/s
+		Step = 0.5,
+		Radius = 10,
+		Height = 2,
+		Target = "",   -- pseudo (vide = joueur le plus proche)
 	},
 
 	Fly = {
@@ -285,13 +294,13 @@ local Config = {
 		Blur = false,           -- flou d'arrière-plan quand le panel est ouvert
 		BlurSize = 20,
 		Dim = 0,             -- assombrissement derrière le panel (0 à 1)
-		Animations = false,
+		Animations = true,
 		AnimBorder = false,     -- bordure animée
-		Width = 820,
-		Height = 540,
-		DefaultWidth = 820,
-		DefaultHeight = 540,
-		StartPosition = UDim2.new(0.5, 0, 0.5, 0),
+		Width = 440,
+		Height = 680,
+		DefaultWidth = 440,
+		DefaultHeight = 680,
+		StartPosition = UDim2.new(1, -232, 0.5, 0), -- bandeau collé à droite
 	},}
 
 ----------------------------------------------------------------------
@@ -979,11 +988,54 @@ end)
 -- Fly classique : BodyVelocity + BodyGyro
 -- WASD = avancer selon la caméra, Espace = monter, Ctrl gauche = descendre
 ----------------------------------------------------------------------
+do -- Orbit : tourne autour d'un joueur
+	local angle, target, nextPick = 0, nil, 0
+	local function valid(p)
+		local c = p and p.Parent and p.Character
+		local h = c and c:FindFirstChildOfClass("Humanoid")
+		return h and h.Health > 0 and c:FindFirstChild("HumanoidRootPart") ~= nil
+	end
+	RunService.Heartbeat:Connect(function(dt)
+		local o = Config.Orbit
+		if not o.Enabled then target = nil return end
+		local _, hum, root = getChar()
+		if not (hum and root and hum.Health > 0) then return end
+		if o.Target ~= "" then
+			local q, found = o.Target:lower(), nil
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player and (p.Name:lower():find(q, 1, true) or p.DisplayName:lower():find(q, 1, true)) then
+					found = p
+					break
+				end
+			end
+			target = found
+		elseif not valid(target) or os.clock() > nextPick then
+			nextPick = os.clock() + 1
+			local best, bd = nil, math.huge
+			for _, p in ipairs(Players:GetPlayers()) do
+				if p ~= player and valid(p) then
+					local d = (p.Character.HumanoidRootPart.Position - root.Position).Magnitude
+					if d < bd then best, bd = p, d end
+				end
+			end
+			target = best
+		end
+		if not valid(target) then return end
+		local tr = target.Character.HumanoidRootPart
+		angle = (angle + o.Speed * dt) % (math.pi * 2)
+		local pos = tr.Position + Vector3.new(math.cos(angle) * o.Radius, o.Height, math.sin(angle) * o.Radius)
+		hum.AutoRotate = false
+		root.CFrame = CFrame.lookAt(pos, tr.Position)
+		root.AssemblyLinearVelocity = Vector3.zero
+		root.AssemblyAngularVelocity = Vector3.zero
+	end)
+end
+
 do -- Spin Bot : le personnage tourne sur lui-même (visible par les autres)
 	local spinning = false
 	RunService.Heartbeat:Connect(function(dt)
 		local _, hum, root = getChar()
-		local on = Config.SpinBot.Enabled and not Config.Fly.Enabled and hum and root and hum.Health > 0
+		local on = Config.SpinBot.Enabled and not Config.Fly.Enabled and not Config.Orbit.Enabled and hum and root and hum.Health > 0
 		if not on then
 			if spinning then
 				spinning = false
@@ -1198,7 +1250,7 @@ local function applyESP(plr)
 		local lbl = Instance.new("TextLabel")
 		lbl.BackgroundTransparency = 1
 		lbl.Size = UDim2.new(1, 0, 1, 0)
-		lbl.Font = Enum.Font.Code
+		lbl.Font = Enum.Font.GothamMedium
 		lbl.TextSize = 14
 		lbl.TextColor3 = s.OutlineColor
 		lbl.TextStrokeTransparency = 0.4
@@ -1686,6 +1738,9 @@ local function setJumpPower(v)
 end
 local function addJumpPower(d) setJumpPower(Config.Jump.Power + d) end
 
+local function setOrbit(v) Config.Orbit.Enabled = v; refreshUI() end
+local function setOrbitSpeed(v) Config.Orbit.Speed = v; refreshUI() end
+local function setOrbitRadius(v) Config.Orbit.Radius = math.max(v, 0); refreshUI() end
 local function setSpinBot(v) Config.SpinBot.Enabled = v; refreshUI() end
 local function setSpinSpeed(v) Config.SpinBot.Speed = math.max(v, 0); refreshUI() end
 local function setFlySpeed(v) Config.Fly.Speed = math.max(v, 0); refreshUI() end -- aucune limite haute
@@ -1917,11 +1972,11 @@ do
 	local TextService = game:GetService("TextService")
 
 	local T = {
-		Bg        = Color3.fromRGB(14, 14, 16),
-		Panel     = Color3.fromRGB(18, 18, 21),
-		Card      = Color3.fromRGB(24, 24, 28),
-		CardHover = Color3.fromRGB(38, 38, 45),
-		Stroke    = Color3.fromRGB(50, 50, 58),
+		Bg        = Color3.fromRGB(11, 11, 15),
+		Panel     = Color3.fromRGB(16, 16, 22),
+		Card      = Color3.fromRGB(22, 22, 30),
+		CardHover = Color3.fromRGB(36, 34, 52),
+		Stroke    = Color3.fromRGB(44, 44, 60),
 		Off       = Color3.fromRGB(48, 48, 55),
 		Accent    = M.Accent,
 		Text      = Color3.fromRGB(225, 225, 230),
@@ -1946,7 +2001,7 @@ do
 
 	local function corner(inst, r)
 		local c = Instance.new("UICorner")
-		c.CornerRadius = UDim.new(0, (r and r >= 100) and 2 or math.min(r or 2, 3))
+		c.CornerRadius = UDim.new(0, (r and r >= 100) and 9999 or ((r or 8) > 10 and math.floor((r or 8) * 0.7) or (r or 8)))
 		c.Parent = inst
 		return c
 	end
@@ -1963,7 +2018,7 @@ do
 	local function newLabel(parent, text, size, color, font)
 		local l = Instance.new("TextLabel")
 		l.BackgroundTransparency = 1
-		l.Font = font or Enum.Font.Code
+		l.Font = font or Enum.Font.GothamMedium
 		l.TextSize = size or 14
 		l.TextColor3 = color or T.Text
 		l.TextXAlignment = Enum.TextXAlignment.Left
@@ -2053,8 +2108,8 @@ do
 	----------------------------------------------------------------
 	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
-	local HEAD_H = 44
-	local SIDE_W = 150
+	local HEAD_H = 56
+	local SIDE_W = 176
 	local FULL = UDim2.new(0, M.Width, 0, M.Height)
 
 	local main = Instance.new("Frame")
@@ -2078,7 +2133,7 @@ do
 
 	do
 		local bg = Instance.new("UIGradient")
-		bg.Color = ColorSequence.new(Color3.fromRGB(16, 16, 19), Color3.fromRGB(12, 12, 14))
+		bg.Color = ColorSequence.new(Color3.fromRGB(20, 18, 30), Color3.fromRGB(10, 10, 14))
 		bg.Rotation = 125
 		bg.Parent = main
 
@@ -2097,7 +2152,6 @@ do
 
 	-- ripple (onde au clic) : l'hôte doit avoir ClipsDescendants = true
 	local function ripple(host)
-		if true then return end
 		local m = UIS:GetMouseLocation()
 		local abs, s = host.AbsolutePosition, scale.Scale
 		local d = math.max(host.AbsoluteSize.X, host.AbsoluteSize.Y) * 1.7 / s
@@ -2168,7 +2222,7 @@ do
 			dot.BorderSizePixel = 0
 			dot.Parent = f
 			corner(dot, 4)
-			local l = newLabel(f, text, 14, T.Text, Enum.Font.Code)
+			local l = newLabel(f, text, 14, T.Text, Enum.Font.GothamMedium)
 			l.Position = UDim2.new(0, 32, 0, 0)
 			l.Size = UDim2.new(1, -44, 1, 0)
 			l.TextTransparency = 1
@@ -2252,19 +2306,19 @@ do
 		local lt = Instance.new("TextLabel")
 		lt.BackgroundTransparency = 1
 		lt.Size = UDim2.new(1, 0, 1, 0)
-		lt.Font = Enum.Font.Code
+		lt.Font = Enum.Font.GothamMedium
 		lt.TextSize = 20
 		lt.TextColor3 = Color3.new(1, 1, 1)
 		lt.Text = "T"
 		lt.ZIndex = 7
 		lt.Parent = logo
 
-		local tw1 = TextService:GetTextSize("Tel Aviv", 20, Enum.Font.Code, Vector2.new(400, 30)).X
-		local title = newLabel(header, "Tel Aviv", 20, T.Text, Enum.Font.Code)
+		local tw1 = TextService:GetTextSize("Tel Aviv", 20, Enum.Font.GothamBlack, Vector2.new(400, 30)).X
+		local title = newLabel(header, "Tel Aviv", 20, T.Text, Enum.Font.GothamBlack)
 		title.Position = UDim2.new(0, 64, 0.5, -20)
 		title.Size = UDim2.new(0, tw1, 0, 24)
 		title.ZIndex = 6
-		local title2 = newLabel(header, "Menu", 20, T.Accent, Enum.Font.Code)
+		local title2 = newLabel(header, "Menu", 20, T.Accent, Enum.Font.GothamBlack)
 		title2.Position = UDim2.new(0, 64 + tw1 + 6, 0.5, -20)
 		title2.Size = UDim2.new(0, 60, 0, 24)
 		title2.ZIndex = 6
@@ -2274,14 +2328,14 @@ do
 		ver.BackgroundColor3 = T.Accent
 		ver.BackgroundTransparency = 0.7
 		ver.BorderSizePixel = 0
-		ver.Font = Enum.Font.Code
+		ver.Font = Enum.Font.GothamMedium
 		ver.TextSize = 11
 		ver.TextColor3 = T.Text
 		ver.Text = "v5"
 		ver.ZIndex = 6
 		ver.Parent = header
 		corner(ver, 9)
-		local sub = newLabel(header, "external", 11, T.SubText, Enum.Font.Code)
+		local sub = newLabel(header, "external", 11, T.SubText, Enum.Font.GothamMedium)
 		sub.Position = UDim2.new(0, 64, 0.5, 6)
 		sub.Size = UDim2.new(0, 190, 0, 14)
 		sub.ZIndex = 6
@@ -2297,7 +2351,7 @@ do
 			b.Size = UDim2.new(0, 32, 0, 32)
 			b.BackgroundColor3 = T.Card
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.Code
+			b.Font = Enum.Font.GothamMedium
 			b.TextSize = 15
 			b.TextColor3 = T.SubText
 			b.Text = text
@@ -2360,7 +2414,7 @@ do
 			l.Position = UDim2.new(0, 16, 0, 0)
 			l.Size = UDim2.new(0, 0, 1, 0)
 			l.AutomaticSize = Enum.AutomaticSize.X
-			l.Font = Enum.Font.Code
+			l.Font = Enum.Font.GothamMedium
 			l.TextSize = 12
 			l.TextColor3 = T.SubText
 			l.ZIndex = 7
@@ -2438,8 +2492,8 @@ do
 	V.sidebar = sidebar
 
 	local NAV = {
-		{ "Home", "🏠" }, { "Movement", "🏃" }, { "Combat", "🎯" }, { "Troll", "😈" }, { "Visuals", "👁" }, { "Teleport", "📍" },
-		{ "Player", "🧍" }, { "BTools", "🔨" }, { "Misc", "🧰" }, { "Settings", "⚙" },
+		{ "Home", "★" }, { "Movement", "➤" }, { "Combat", "✦" }, { "Troll", "☠" }, { "Visuals", "◉" }, { "Teleport", "◎" },
+		{ "Player", "●" }, { "BTools", "✎" }, { "Misc", "☰" }, { "Settings", "⚙" },
 	}
 
 	do
@@ -2489,13 +2543,13 @@ do
 			local ic = Instance.new("TextLabel")
 			ic.BackgroundTransparency = 1
 			ic.Size = UDim2.new(0, 44, 1, 0)
-			ic.Font = Enum.Font.Code
+			ic.Font = Enum.Font.GothamMedium
 			ic.TextSize = 18
 			ic.TextColor3 = T.Text
 			ic.Text = icon
 			ic.ZIndex = 6
 			ic.Parent = item
-			local tx = newLabel(item, name, 14, T.SubText, Enum.Font.Code)
+			local tx = newLabel(item, name, 14, T.SubText, Enum.Font.GothamMedium)
 			tx.Position = UDim2.new(0, 44, 0, 0)
 			tx.Size = UDim2.new(1, -48, 1, 0)
 			tx.ZIndex = 6
@@ -2541,12 +2595,12 @@ do
 			end)
 			if ok and av.Parent then av.Image = img end
 		end)
-		local nm = newLabel(card, player.DisplayName, 13, T.Text, Enum.Font.Code)
+		local nm = newLabel(card, player.DisplayName, 13, T.Text, Enum.Font.GothamMedium)
 		nm.Position = UDim2.new(0, 56, 0, 9)
 		nm.Size = UDim2.new(1, -64, 0, 18)
 		nm.ZIndex = 4
 		nm.TextTruncate = Enum.TextTruncate.AtEnd
-		local st2 = newLabel(card, "@" .. player.Name, 11, T.SubText, Enum.Font.Code)
+		local st2 = newLabel(card, "@" .. player.Name, 11, T.SubText, Enum.Font.GothamMedium)
 		st2.Position = UDim2.new(0, 56, 0, 28)
 		st2.Size = UDim2.new(1, -64, 0, 16)
 		st2.ZIndex = 4
@@ -2689,10 +2743,10 @@ do
 		ic.BackgroundTransparency = 1
 		ic.Position = UDim2.new(0, 12, 0, 0)
 		ic.Size = UDim2.new(0, 20, 1, 0)
-		ic.Font = Enum.Font.Code
+		ic.Font = Enum.Font.GothamMedium
 		ic.TextSize = 14
 		ic.TextColor3 = T.SubText
-		ic.Text = "🔍"
+		ic.Text = "◌"
 		ic.ZIndex = 7
 		ic.Parent = sbox
 
@@ -2700,7 +2754,7 @@ do
 		box.BackgroundTransparency = 1
 		box.Position = UDim2.new(0, 38, 0, 0)
 		box.Size = UDim2.new(1, -48, 1, 0)
-		box.Font = Enum.Font.Code
+		box.Font = Enum.Font.GothamMedium
 		box.TextSize = 13
 		box.TextColor3 = T.Text
 		box.PlaceholderText = "Rechercher une option..."
@@ -2773,7 +2827,7 @@ do
 			end
 			local shown = math.min(#results, 8)
 			if shown == 0 then
-				local l = newLabel(drop, "Aucun résultat", 13, T.SubText, Enum.Font.Code)
+				local l = newLabel(drop, "Aucun résultat", 13, T.SubText, Enum.Font.GothamMedium)
 				l.Size = UDim2.new(1, 0, 0, 34)
 				l.ZIndex = 21
 				local pd = Instance.new("UIPadding", l)
@@ -2792,12 +2846,12 @@ do
 				b.ZIndex = 21
 				b.Parent = drop
 				corner(b, 8)
-				local t1 = newLabel(b, e.text, 13, T.Text, Enum.Font.Code)
+				local t1 = newLabel(b, e.text, 13, T.Text, Enum.Font.GothamMedium)
 				t1.Position = UDim2.new(0, 10, 0, 4)
 				t1.Size = UDim2.new(1, -20, 0, 18)
 				t1.ZIndex = 22
 				t1.TextTruncate = Enum.TextTruncate.AtEnd
-				local t2 = newLabel(b, e.card.title, 11, T.SubText, Enum.Font.Code)
+				local t2 = newLabel(b, e.card.title, 11, T.SubText, Enum.Font.GothamMedium)
 				t2.Position = UDim2.new(0, 10, 0, 21)
 				t2.Size = UDim2.new(1, -20, 0, 15)
 				t2.ZIndex = 22
@@ -2873,12 +2927,12 @@ do
 		local ic = Instance.new("TextLabel")
 		ic.BackgroundTransparency = 1
 		ic.Size = UDim2.new(0, 24, 0, 24)
-		ic.Font = Enum.Font.Code
+		ic.Font = Enum.Font.GothamMedium
 		ic.TextSize = 17
 		ic.TextColor3 = T.Accent
 		ic.Text = icon
 		ic.Parent = hd
-		local tl = newLabel(hd, title, 15, T.Text, Enum.Font.Code)
+		local tl = newLabel(hd, title, 15, T.Text, Enum.Font.GothamBold)
 		tl.Position = UDim2.new(0, 30, 0, 0)
 		tl.Size = UDim2.new(1, -30, 0, 24)
 		local ln = Instance.new("Frame")
@@ -2888,11 +2942,20 @@ do
 		ln.BorderSizePixel = 0
 		ln.Parent = hd
 
+		do -- barre d'accent à gauche du titre
+			local bar = Instance.new("Frame")
+			bar.Position = UDim2.new(0, -12, 0, 4)
+			bar.Size = UDim2.new(0, 3, 0, 18)
+			bar.BackgroundColor3 = T.Accent
+			bar.BorderSizePixel = 0
+			bar.Parent = hd
+			corner(bar, 2)
+		end
 		local c = { frame = card, h = 66, cats = cats, title = title, n = 0, stroke = st }
 		table.insert(N.cards, c)
 		N.cur = c
-		card.MouseEnter:Connect(function() tw(st, { Color = T.Accent }, 0.2) end)
-		card.MouseLeave:Connect(function() tw(st, { Color = T.Stroke }, 0.25) end)
+		card.MouseEnter:Connect(function() tw(st, { Color = T.Accent }, 0.2); tw(card, { BackgroundColor3 = T.CardHover }, 0.25) end)
+		card.MouseLeave:Connect(function() tw(st, { Color = T.Stroke }, 0.25); tw(card, { BackgroundColor3 = T.Card }, 0.3) end)
 		return c
 	end
 
@@ -2932,7 +2995,7 @@ do
 	end
 
 	local function rowLabel(row, text, w)
-		local l = newLabel(row, text, 13, T.Text, Enum.Font.Code)
+		local l = newLabel(row, text, 13, T.Text, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 4, 0, 0)
 		l.Size = w or UDim2.new(1, -60, 1, 0)
 		l.TextTruncate = Enum.TextTruncate.AtEnd
@@ -2943,7 +3006,7 @@ do
 	local function makeSub(text)
 		local r = addRow(26)
 		r.ClipsDescendants = false
-		local l = newLabel(r, text, 13, T.Text, Enum.Font.Code)
+		local l = newLabel(r, text, 13, T.Text, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 2, 0, 6)
 		l.Size = UDim2.new(1, 0, 0, 18)
 		local ln = Instance.new("Frame")
@@ -2955,9 +3018,9 @@ do
 	end
 
 	local function makeNote(text)
-		local h = TextService:GetTextSize(text, 11, Enum.Font.Code, Vector2.new(240, 2000)).Y + 6
+		local h = TextService:GetTextSize(text, 11, Enum.Font.GothamMedium, Vector2.new(240, 2000)).Y + 6
 		local r = addRow(h)
-		local l = newLabel(r, text, 11, T.SubText, Enum.Font.Code)
+		local l = newLabel(r, text, 11, T.SubText, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 4, 0, 2)
 		l.Size = UDim2.new(1, -8, 1, -2)
 		l.TextWrapped = true
@@ -3037,7 +3100,7 @@ do
 		b.BackgroundColor3 = T.Bg
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = false
-		b.Font = Enum.Font.Code
+		b.Font = Enum.Font.GothamMedium
 		b.TextSize = 13
 		b.TextColor3 = T.Text
 		b.Text = text
@@ -3055,7 +3118,7 @@ do
 		box.Size = UDim2.new(0, w, 0, h)
 		box.BackgroundColor3 = T.Bg
 		box.BorderSizePixel = 0
-		box.Font = Enum.Font.Code
+		box.Font = Enum.Font.GothamMedium
 		box.TextSize = size or 12
 		box.TextColor3 = T.Text
 		box.ClearTextOnFocus = false
@@ -3198,7 +3261,7 @@ do
 	local function makeTextAction(text, placeholder, buttonText, callback)
 		local row = addRow(30)
 		local box = makeBox(row, 0, 24, 11)
-		box.Font = Enum.Font.Code
+		box.Font = Enum.Font.GothamMedium
 		box.AnchorPoint = Vector2.new(0, 0.5)
 		box.Size = UDim2.new(1, -64, 0, 24)
 		box.Position = UDim2.new(0, 0, 0.5, 0)
@@ -3212,7 +3275,7 @@ do
 		btn.BackgroundColor3 = T.Accent
 		btn.BorderSizePixel = 0
 		btn.AutoButtonColor = true
-		btn.Font = Enum.Font.Code
+		btn.Font = Enum.Font.GothamMedium
 		btn.TextSize = 12
 		btn.TextColor3 = Color3.new(1, 1, 1)
 		btn.Text = buttonText
@@ -3229,7 +3292,7 @@ do
 
 	local function makeSegment(text, options, getter, setter)
 		local row = addRow(50)
-		local l = newLabel(row, text, 11, T.SubText, Enum.Font.Code)
+		local l = newLabel(row, text, 11, T.SubText, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 4, 0, 0)
 		l.Size = UDim2.new(1, -8, 0, 18)
 		local holder = Instance.new("Frame")
@@ -3248,7 +3311,7 @@ do
 			b.Size = UDim2.new(1 / n, -4 * (n - 1) / n, 1, 0)
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.Code
+			b.Font = Enum.Font.GothamMedium
 			b.TextSize = 12
 			b.Text = opt[1]
 			b.ZIndex = 4
@@ -3269,7 +3332,7 @@ do
 
 	local function makeSwatches(text, colors, onPick)
 		local row = addRow(50)
-		local l = newLabel(row, text, 11, T.SubText, Enum.Font.Code)
+		local l = newLabel(row, text, 11, T.SubText, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 4, 0, 0)
 		l.Size = UDim2.new(1, -8, 0, 18)
 		local holder = Instance.new("Frame")
@@ -3326,7 +3389,7 @@ do
 	makeStepper("Walk Speed", function() return Config.Walk.Speed end, setWalkSpeed, Config.Walk.Step, 0, 200)
 	makeToggle("Jump Power perso", function() return Config.Jump.Enabled end, setJumpEnabled)
 	makeStepper("Jump Power", function() return Config.Jump.Power end, setJumpPower, Config.Jump.Step, Config.Jump.Min, Config.Jump.Max)
-	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, "Alt")
+	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, keyLabel(Config.Keys.Fly))
 	makeStepper("Fly Speed", function() return Config.Fly.Speed end, setFlySpeed, Config.Fly.Step, 0, 300)
 	makeNote("Fly classique : WASD + Espace / Ctrl gauche")
 
@@ -3382,7 +3445,7 @@ do
 	cfgToggle("Deactivate après chaque tir", Config.RapidFire, "Deactivate")
 	makeNote("Arme en main + clic gauche maintenu. La valeur n'a pas de limite (60 tirs max par image pour ne pas figer le jeu).")
 
-	makeCard("ESP & Visuals", "👁", { "Home", "Visuals" })
+	makeCard("ESP & Visuals", "◉", { "Home", "Visuals" })
 	makeToggle("ESP", function() return Config.ESP.Enabled end, setESP, keyLabel(Config.Keys.ESP))
 	cfgToggle("FOV Circle", Config.FOVCircle, "Show")
 	makeSub("ESP Settings")
@@ -3435,7 +3498,7 @@ do
 	end)
 	makeButton("Arrêter le view   [Home]", function() stopView(); U.notify("View arrêté") end)
 
-	makeCard("Téléportation", "📍", { "Home", "Teleport" })
+	makeCard("Téléportation", "◎", { "Home", "Teleport" })
 	makeToggle("Click TP (Shift + clic)", function() return Config.TP.ClickTP end, setClickTP, keyLabel(Config.Keys.ClickTP))
 	makeTextAction("TP à un joueur", "nom", "TP", tpByName)
 	makeButton("Joueur suivant   [PgDn]", function() tpCycle(1) end)
@@ -3445,7 +3508,7 @@ do
 	makeButton("Retourner à la position   [Delete]", function() loadPosition(); U.notify("Retour à la position") end)
 	makeButton("TP au spawn", tpSpawn)
 
-	makeCard("Fast Mod", "⚡", { "Home", "Combat" })
+	makeCard("Fast Mod", "»", { "Home", "Combat" })
 	makeToggle("Enable Fast Mod", function() return Config.FastMod.Enabled end, setFastMod, keyLabel(Config.Keys.FastMod))
 	cfgToggle("Anim Boost", Config.FastMod, "AnimBoost")
 	makeSub("General Settings")
@@ -3483,8 +3546,18 @@ do
 	makeStepper("Spin (tours/s)", function() return Config.SpinBot.Speed end, setSpinSpeed, Config.SpinBot.Step, 0, 200)
 	makeNote("Le personnage tourne sur lui-même. Désactivé pendant le Fly.")
 
+	makeCard("Orbit", "◎", { "Home", "Troll" })
+	makeToggle("Orbit", function() return Config.Orbit.Enabled end, setOrbit)
+	makeTextAction("Cible", "pseudo, vide = plus proche", "OK", function(t)
+		Config.Orbit.Target = (t or ""):gsub("^%s+", ""):gsub("%s+$", "")
+		U.notify(Config.Orbit.Target == "" and "Orbit : joueur le plus proche" or ("Orbit : " .. Config.Orbit.Target))
+	end)
+	makeStepper("Orbit vitesse", function() return Config.Orbit.Speed end, setOrbitSpeed, Config.Orbit.Step, -50, 50)
+	makeStepper("Orbit rayon", function() return Config.Orbit.Radius end, setOrbitRadius, 1, 0, 200)
+	makeNote("Tourne autour de la cible. Vitesse négative = sens inverse.")
+
 	makeCard("Fling All", "☄", { "Home", "Troll" })
-	makeToggle("Fling All (boucle)", function() return Config.FlingAll.Enabled end, setFlingAll, keyLabel(Config.Keys.FlingAll))
+	makeToggle("Fling All (boucle)", function() return Config.FlingAll.Enabled end, setFlingAll)
 	cfgStep("Temps max / joueur (s)", Config.FlingAll, "TimeToWait", 0.5, 0.5, 10,
 		function() Config.FlingAll.TimeToWait = math.max(Config.FlingAll.TimeToWait, 0.1) end)
 	cfgStep("Pause entre cibles (s)", Config.FlingAll, "DelayBetweenTargets", 0.1, 0, 5,
@@ -3506,7 +3579,7 @@ do
 	end, true)
 	makeNote("Boucle sur tous les joueurs (sauf whitelist et assis). Touche F. Coupe Walk Fling et Fly à l'activation.")
 
-	makeCard("BTools", "🔨", { "Home", "BTools" })
+	makeCard("BTools", "✎", { "Home", "BTools" })
 	makeToggle("BTools (ouvre le panneau)", function() return Config.BTools.Enabled end, function(v) BTf.setEnabled(v) end, keyLabel(Config.Keys.BTools))
 	cfgToggle("Ignorer joueurs et PNJ", Config.BTools, "IgnorePlayers")
 	cfgToggle("Surbrillance au survol", Config.BTools, "ShowHover")
@@ -3524,7 +3597,7 @@ do
 	makeButton("Spawn Nextbot (x1)", function() spawnLocalNextbot() end)
 	cfgStep("Speed", Config.NextbotSpam, "Speed", 5, 0, 200)
 
-	makeCard("Interface", "🎨", { "Home", "Settings" })
+	makeCard("Interface", "◐", { "Home", "Settings" })
 	makeSwatches("Couleur d'accent", {
 		Color3.fromRGB(36, 140, 255), Color3.fromRGB(124, 108, 255), Color3.fromRGB(50, 210, 220), Color3.fromRGB(60, 200, 120),
 		Color3.fromRGB(255, 190, 60), Color3.fromRGB(255, 120, 70), Color3.fromRGB(240, 80, 80), Color3.fromRGB(255, 95, 160),
@@ -3535,12 +3608,12 @@ do
 	makeToggle("Animations", function() return M.Animations end, function(v) M.Animations = v; refreshUI() end)
 	makeToggle("Animated Border", function() return M.AnimBorder end, function(v) M.AnimBorder = v; U.setShimmer(v); refreshUI() end)
 	cfgToggle("Show Notifications", Config.Notify, "Toggles")
-	makeButton("Preset : Mini (560x380)", function() U.setPreset(560, 380) end)
-	makeButton("Preset : Classique (820x540)", function() U.setPreset(820, 540) end)
+	makeButton("Preset : Bandeau droit (440x680)", function() U.setPreset(440, 680) end)
+	makeButton("Preset : Bandeau fin (340x600)", function() U.setPreset(340, 600) end)
+	makeButton("Preset : Fenêtre (900x580)", function() U.setPreset(900, 580) end)
 	makeButton("Preset : Large (1000x640)", function() U.setPreset(1000, 640) end)
 	makeButton("Preset : Bandeau large (1100x340)", function() U.setPreset(1100, 340) end)
-	makeButton("Preset : Colonne haute (420x640)", function() U.setPreset(420, 640) end)
-	makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
+		makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
 	makeNote("Entrée (ou K / Ctrl droit) : cacher / afficher le panel.")
 
 
@@ -3630,7 +3703,7 @@ do
 
 	function U.setPreset(w, h)
 		M.Width, M.Height = w, h
-		main.Position = M.StartPosition
+		main.Position = w <= 520 and UDim2.new(1, -(w / 2 + 12), 0.5, 0) or UDim2.new(0.5, 0, 0.5, 0)
 		homePos = nil
 		applyLayout()
 	end
@@ -3653,7 +3726,7 @@ do
 		grip.Position = UDim2.new(1, -5, 1, -5)
 		grip.Size = UDim2.new(0, 20, 0, 20)
 		grip.BackgroundTransparency = 1
-		grip.Font = Enum.Font.Code
+		grip.Font = Enum.Font.GothamMedium
 		grip.TextSize = 14
 		grip.TextColor3 = T.SubText
 		grip.Text = "◢"
@@ -3670,8 +3743,8 @@ do
 		UIS.InputChanged:Connect(function(i)
 			if gDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = i.Position - gStart
-				M.Width = math.clamp(gW + d.X * 2, 640, 1300) -- fenêtre centrée : ×2 pour suivre le curseur
-				M.Height = math.clamp(gH + d.Y * 2, 420, 800)
+				M.Width = math.clamp(gW + d.X * 2, 340, 1300) -- fenêtre centrée : ×2 pour suivre le curseur
+				M.Height = math.clamp(gH + d.Y * 2, 320, 900)
 				applyLayout()
 			end
 		end)
@@ -3732,9 +3805,9 @@ do
 	-- { id, icône, nom } ; les ids qui commencent par @ sont des actions immédiates
 	local TOOLS = {
 		{ "Select", "◎", "Choisir" }, { "Move", "↔", "Déplacer" }, { "Resize", "⤢", "Taille" }, { "Rotate", "⟳", "Pivoter" },
-		{ "Paint", "🎨", "Couleur" }, { "Material", "🧱", "Matière" }, { "Surface", "▦", "Surface" }, { "Light", "💡", "Lumière" },
-		{ "Decorate", "🔥", "Effets" }, { "Mesh", "◆", "Mesh" }, { "Texture", "🖼", "Texture" }, { "Weld", "🔗", "Souder" },
-		{ "Physics", "⚓", "Physique" }, { "Create", "➕", "Créer" }, { "@Clone", "⧉", "Cloner" }, { "@Delete", "🗑", "Suppr." },
+		{ "Paint", "◐", "Couleur" }, { "Material", "▤", "Matière" }, { "Surface", "▦", "Surface" }, { "Light", "☀", "Lumière" },
+		{ "Decorate", "✺", "Effets" }, { "Mesh", "◆", "Mesh" }, { "Texture", "▨", "Texture" }, { "Weld", "∞", "Souder" },
+		{ "Physics", "⊕", "Physique" }, { "Create", "✚", "Créer" }, { "@Clone", "⧉", "Cloner" }, { "@Delete", "✕", "Suppr." },
 	}
 	local TOOL_TITLES = {}
 	for _, t in ipairs(TOOLS) do TOOL_TITLES[t[1]] = t[3] end
@@ -4755,7 +4828,7 @@ do
 	end
 
 	function W.header(text)
-		local l = newLabel(opts, text:upper(), 11, T.Accent, Enum.Font.Code)
+		local l = newLabel(opts, text:upper(), 11, T.Accent, Enum.Font.GothamMedium)
 		l.LayoutOrder = nextO()
 		l.Size = UDim2.new(1, 0, 0, 22)
 		l.TextYAlignment = Enum.TextYAlignment.Bottom
@@ -4763,7 +4836,7 @@ do
 	end
 
 	function W.note(text)
-		local l = newLabel(opts, text, 12, T.SubText, Enum.Font.Code)
+		local l = newLabel(opts, text, 12, T.SubText, Enum.Font.GothamMedium)
 		l.LayoutOrder = nextO()
 		l.Size = UDim2.new(1, 0, 0, 0)
 		l.AutomaticSize = Enum.AutomaticSize.Y
@@ -4791,7 +4864,7 @@ do
 		b.BackgroundColor3 = kind == "primary" and T.Accent or T.Card
 		b.BorderSizePixel = 0
 		b.AutoButtonColor = true
-		b.Font = Enum.Font.Code
+		b.Font = Enum.Font.GothamMedium
 		b.TextSize = 13
 		b.TextColor3 = kind == "primary" and T.Dark or (kind == "danger" and T.Danger or T.Text)
 		b.Text = text
@@ -4804,7 +4877,7 @@ do
 
 	function W.input(label, get, set, isText)
 		local row = W.card(34)
-		local l = newLabel(row, label, 13, T.Text, Enum.Font.Code)
+		local l = newLabel(row, label, 13, T.Text, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 12, 0, 0)
 		l.Size = UDim2.new(1, -124, 1, 0)
 		l.TextTruncate = Enum.TextTruncate.AtEnd
@@ -4814,7 +4887,7 @@ do
 		box.Size = UDim2.new(0, 104, 0, 24)
 		box.BackgroundColor3 = T.Bg
 		box.BorderSizePixel = 0
-		box.Font = Enum.Font.Code
+		box.Font = Enum.Font.GothamMedium
 		box.TextSize = 13
 		box.TextColor3 = T.Text
 		box.ClearTextOnFocus = false
@@ -4845,7 +4918,7 @@ do
 
 	function W.toggle(label, get, set)
 		local row = W.card(34)
-		local l = newLabel(row, label, 13, T.Text, Enum.Font.Code)
+		local l = newLabel(row, label, 13, T.Text, Enum.Font.GothamMedium)
 		l.Position = UDim2.new(0, 12, 0, 0)
 		l.Size = UDim2.new(1, -70, 1, 0)
 		l.TextTruncate = Enum.TextTruncate.AtEnd
@@ -4912,7 +4985,7 @@ do
 			b.LayoutOrder = i
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.Code
+			b.Font = Enum.Font.GothamMedium
 			b.TextSize = 12
 			b.Text = label
 			b.TextTruncate = Enum.TextTruncate.AtEnd
@@ -5164,7 +5237,7 @@ do
 	function W.build()
 		W.clear()
 		local card = W.card(46)
-		infoLabel = newLabel(card, S.summary(), 12, T.Text, Enum.Font.Code)
+		infoLabel = newLabel(card, S.summary(), 12, T.Text, Enum.Font.GothamMedium)
 		infoLabel.Position = UDim2.new(0, 12, 0, 0)
 		infoLabel.Size = UDim2.new(1, -24, 1, 0)
 		infoLabel.TextWrapped = true
@@ -5247,10 +5320,10 @@ do
 		line.BackgroundColor3 = T.Accent
 		line.BorderSizePixel = 0
 		line.Parent = titleBar
-		local title = newLabel(titleBar, "🔨  BTools", 16, T.Text, Enum.Font.Code)
+		local title = newLabel(titleBar, "✎  BTools", 16, T.Text, Enum.Font.GothamMedium)
 		title.Position = UDim2.new(0, 14, 0, 0)
 		title.Size = UDim2.new(0.5, 0, 1, -2)
-		local selChip = newLabel(titleBar, "0 sél.", 12, T.SubText, Enum.Font.Code)
+		local selChip = newLabel(titleBar, "0 sél.", 12, T.SubText, Enum.Font.GothamMedium)
 		selChip.AnchorPoint = Vector2.new(1, 0.5)
 		selChip.Position = UDim2.new(1, -50, 0.5, -1)
 		selChip.Size = UDim2.new(0, 80, 0, 20)
@@ -5261,7 +5334,7 @@ do
 		closeD.Size = UDim2.new(0, 28, 0, 28)
 		closeD.BackgroundColor3 = T.Card
 		closeD.AutoButtonColor = false
-		closeD.Font = Enum.Font.Code
+		closeD.Font = Enum.Font.GothamMedium
 		closeD.TextSize = 14
 		closeD.TextColor3 = T.Text
 		closeD.Text = "X"
@@ -5312,7 +5385,7 @@ do
 			b.BackgroundColor3 = T.Card
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = false
-			b.Font = Enum.Font.Code
+			b.Font = Enum.Font.GothamMedium
 			b.TextSize = 11
 			b.RichText = true
 			b.TextColor3 = T.Text
@@ -5347,7 +5420,7 @@ do
 			b.BackgroundColor3 = T.Card
 			b.BorderSizePixel = 0
 			b.AutoButtonColor = true
-			b.Font = Enum.Font.Code
+			b.Font = Enum.Font.GothamMedium
 			b.TextSize = 12
 			b.TextColor3 = T.Text
 			b.Text = text
