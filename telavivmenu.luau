@@ -55,6 +55,12 @@ local Config = {
 		ViewStop       = { Enum.KeyCode.Home },
 	},
 
+	SpinBot = {
+		Enabled = false,
+		Speed = 20,   -- tours par seconde
+		Step = 2,
+	},
+
 	Fly = {
 		Enabled = false,
 		Speed = 60,
@@ -973,6 +979,25 @@ end)
 -- Fly classique : BodyVelocity + BodyGyro
 -- WASD = avancer selon la caméra, Espace = monter, Ctrl gauche = descendre
 ----------------------------------------------------------------------
+do -- Spin Bot : le personnage tourne sur lui-même (visible par les autres)
+	local spinning = false
+	RunService.Heartbeat:Connect(function(dt)
+		local _, hum, root = getChar()
+		local on = Config.SpinBot.Enabled and not Config.Fly.Enabled and hum and root and hum.Health > 0
+		if not on then
+			if spinning then
+				spinning = false
+				if hum then hum.AutoRotate = true end
+			end
+			return
+		end
+		spinning = true
+		hum.AutoRotate = false
+		local rot = math.rad(360 * math.max(Config.SpinBot.Speed, 0)) * dt
+		root.CFrame = root.CFrame * CFrame.Angles(0, rot, 0)
+	end)
+end
+
 do
 	local bv, bg
 
@@ -1661,6 +1686,8 @@ local function setJumpPower(v)
 end
 local function addJumpPower(d) setJumpPower(Config.Jump.Power + d) end
 
+local function setSpinBot(v) Config.SpinBot.Enabled = v; refreshUI() end
+local function setSpinSpeed(v) Config.SpinBot.Speed = math.max(v, 0); refreshUI() end
 local function setFlySpeed(v) Config.Fly.Speed = math.max(v, 0); refreshUI() end -- aucune limite haute
 local function addFlySpeed(d) setFlySpeed(Config.Fly.Speed + d) end
 local function setWalkSpeed(v)
@@ -3451,6 +3478,11 @@ do
 	cfgStep("Délai contact → mort (s)", Config.Kills, "Window", 1)
 	makeNote("Touches , et . : puissance −/+. Fling uniquement au contact.")
 
+	makeCard("Spin Bot", "↻", { "Home", "Troll" })
+	makeToggle("Spin Bot", function() return Config.SpinBot.Enabled end, setSpinBot)
+	makeStepper("Spin (tours/s)", function() return Config.SpinBot.Speed end, setSpinSpeed, Config.SpinBot.Step, 0, 200)
+	makeNote("Le personnage tourne sur lui-même. Désactivé pendant le Fly.")
+
 	makeCard("Fling All", "☄", { "Home", "Troll" })
 	makeToggle("Fling All (boucle)", function() return Config.FlingAll.Enabled end, setFlingAll, keyLabel(Config.Keys.FlingAll))
 	cfgStep("Temps max / joueur (s)", Config.FlingAll, "TimeToWait", 0.5, 0.5, 10,
@@ -3503,6 +3535,11 @@ do
 	makeToggle("Animations", function() return M.Animations end, function(v) M.Animations = v; refreshUI() end)
 	makeToggle("Animated Border", function() return M.AnimBorder end, function(v) M.AnimBorder = v; U.setShimmer(v); refreshUI() end)
 	cfgToggle("Show Notifications", Config.Notify, "Toggles")
+	makeButton("Preset : Mini (560x380)", function() U.setPreset(560, 380) end)
+	makeButton("Preset : Classique (820x540)", function() U.setPreset(820, 540) end)
+	makeButton("Preset : Large (1000x640)", function() U.setPreset(1000, 640) end)
+	makeButton("Preset : Bandeau large (1100x340)", function() U.setPreset(1100, 340) end)
+	makeButton("Preset : Colonne haute (420x640)", function() U.setPreset(420, 640) end)
 	makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
 	makeNote("Entrée (ou K / Ctrl droit) : cacher / afficher le panel.")
 
@@ -3589,6 +3626,13 @@ do
 		V.sbox.Visible = not N.minimized
 		if not N.minimized then main.Size = FULL end
 		N.layout()
+	end
+
+	function U.setPreset(w, h)
+		M.Width, M.Height = w, h
+		main.Position = M.StartPosition
+		homePos = nil
+		applyLayout()
 	end
 
 	function U.resetWindow()
