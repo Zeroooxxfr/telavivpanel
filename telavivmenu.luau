@@ -294,17 +294,17 @@ local Config = {
 	Menu = {
 		Name = "telavivmenu",
 		Title = "Tel Aviv Menu",
-		Accent = Color3.fromRGB(120, 90, 255),
+		Accent = Color3.fromRGB(226, 211, 125),
 		Blur = false,           -- flou d'arrière-plan quand le panel est ouvert
 		BlurSize = 20,
 		Dim = 0,             -- assombrissement derrière le panel (0 à 1)
 		Animations = true,
 		AnimBorder = false,     -- bordure animée
-		Width = 440,
-		Height = 680,
-		DefaultWidth = 440,
-		DefaultHeight = 680,
-		StartPosition = UDim2.new(1, -232, 0.5, 0), -- bandeau collé à droite
+		Width = 760,
+		Height = 540,
+		DefaultWidth = 760,
+		DefaultHeight = 540,
+		StartPosition = UDim2.new(0.5, 0, 0.5, 0), -- centré
 	},}
 
 ----------------------------------------------------------------------
@@ -2022,18 +2022,18 @@ do
 	local TextService = game:GetService("TextService")
 
 	local T = {
-		Bg        = Color3.fromRGB(11, 11, 15),
-		Panel     = Color3.fromRGB(16, 16, 22),
-		Card      = Color3.fromRGB(22, 22, 30),
-		CardHover = Color3.fromRGB(36, 34, 52),
-		Stroke    = Color3.fromRGB(44, 44, 60),
-		Off       = Color3.fromRGB(48, 48, 55),
+		Bg        = Color3.fromRGB(18, 18, 17),
+		Panel     = Color3.fromRGB(23, 23, 22),
+		Card      = Color3.fromRGB(29, 29, 27),
+		CardHover = Color3.fromRGB(39, 39, 35),
+		Stroke    = Color3.fromRGB(52, 51, 45),
+		Off       = Color3.fromRGB(57, 56, 51),
 		Accent    = M.Accent,
-		Text      = Color3.fromRGB(225, 225, 230),
+		Text      = Color3.fromRGB(226, 224, 213),
 		SubText   = Color3.fromRGB(135, 135, 145),
-		On        = Color3.fromRGB(120, 90, 255),
-		Danger    = Color3.fromRGB(235, 70, 70),
-		Dark      = Color3.fromRGB(10, 10, 12),
+		On        = Color3.fromRGB(226, 211, 125),
+		Danger    = Color3.fromRGB(184, 91, 77),
+		Dark      = Color3.fromRGB(14, 14, 13),
 	}
 	U.T = T
 
@@ -2158,8 +2158,8 @@ do
 	----------------------------------------------------------------
 	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
-	local HEAD_H = 56
-	local SIDE_W = 176
+	local HEAD_H = 48
+	local SIDE_W = 205
 	local FULL = UDim2.new(0, M.Width, 0, M.Height)
 
 	local main = Instance.new("Frame")
@@ -2173,7 +2173,7 @@ do
 	main.Active = true
 	main.ClipsDescendants = true
 	main.Parent = gui
-	corner(main, 16)
+	corner(main, 4)
 	V.main = main
 	U.main = main
 	menuFrameRef = main
@@ -2183,7 +2183,7 @@ do
 
 	do
 		local bg = Instance.new("UIGradient")
-		bg.Color = ColorSequence.new(Color3.fromRGB(20, 18, 30), Color3.fromRGB(10, 10, 14))
+		bg.Color = ColorSequence.new(Color3.fromRGB(25, 25, 23), Color3.fromRGB(18, 18, 17))
 		bg.Rotation = 125
 		bg.Parent = main
 
@@ -2260,7 +2260,7 @@ do
 			f.BackgroundTransparency = 1
 			f.BorderSizePixel = 0
 			f.Parent = slot
-			corner(f, 11)
+			corner(f, 3)
 			local st = stroke(f, T.Accent, 1)
 			st.Transparency = 1
 			local dot = Instance.new("Frame")
@@ -2573,7 +2573,7 @@ do
 		pill.BorderSizePixel = 0
 		pill.ZIndex = 3
 		pill.Parent = nav
-		corner(pill, 10)
+		corner(pill, 2)
 		accentGradient(pill, 0)
 		local pst = stroke(pill, T.Accent, 1)
 		pst.Transparency = 0.2
@@ -2629,7 +2629,7 @@ do
 		card.BorderSizePixel = 0
 		card.ZIndex = 3
 		card.Parent = sidebar
-		corner(card, 12)
+		corner(card, 3)
 		stroke(card, T.Stroke, 1)
 		local av = Instance.new("ImageLabel")
 		av.Position = UDim2.new(0, 10, 0.5, -18)
@@ -2785,7 +2785,7 @@ do
 		sbox.BorderSizePixel = 0
 		sbox.ZIndex = 6
 		sbox.Parent = header
-		corner(sbox, 17)
+		corner(sbox, 3)
 		local sst = stroke(sbox, T.Stroke, 1)
 		V.sbox = sbox
 
@@ -2895,7 +2895,7 @@ do
 				b.Text = ""
 				b.ZIndex = 21
 				b.Parent = drop
-				corner(b, 8)
+				corner(b, 3)
 				local t1 = newLabel(b, e.text, 13, T.Text, Enum.Font.GothamMedium)
 				t1.Position = UDim2.new(0, 10, 0, 4)
 				t1.Size = UDim2.new(1, -20, 0, 18)
@@ -2954,7 +2954,7 @@ do
 		card.BackgroundTransparency = 0.1
 		card.BorderSizePixel = 0
 		card.Parent = pool
-		corner(card, 12)
+		corner(card, 3)
 		local st = stroke(card, T.Stroke, 1.2)
 		local gr = Instance.new("UIGradient")
 		gr.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 200, 225))
@@ -3089,7 +3089,7 @@ do
 		track.BorderSizePixel = 0
 		track.ZIndex = 3
 		track.Parent = row
-		corner(track, 10)
+		corner(track, 2)
 		local knob = Instance.new("Frame")
 		knob.AnchorPoint = Vector2.new(0, 0.5)
 		knob.Position = UDim2.new(0, 3, 0.5, 0)
@@ -3156,7 +3156,7 @@ do
 		b.Text = text
 		b.ZIndex = 4
 		b.Parent = parent
-		corner(b, 6)
+		corner(b, 3)
 		local s = stroke(b, T.Stroke, 1)
 		b.MouseEnter:Connect(function() tw(s, { Color = T.Accent }, 0.12) end)
 		b.MouseLeave:Connect(function() tw(s, { Color = T.Stroke }, 0.15) end)
@@ -4923,7 +4923,7 @@ do
 		b.TextColor3 = kind == "primary" and T.Dark or (kind == "danger" and T.Danger or T.Text)
 		b.Text = text
 		b.Parent = opts
-		corner(b, 8)
+		corner(b, 3)
 		if kind ~= "primary" then stroke(b, T.Stroke, 1) end
 		b.MouseButton1Click:Connect(cb)
 		return b
@@ -4982,7 +4982,7 @@ do
 		track.Size = UDim2.new(0, 38, 0, 20)
 		track.BorderSizePixel = 0
 		track.Parent = row
-		corner(track, 10)
+		corner(track, 2)
 		local knob = Instance.new("Frame")
 		knob.AnchorPoint = Vector2.new(0, 0.5)
 		knob.Size = UDim2.new(0, 14, 0, 14)
@@ -5044,7 +5044,7 @@ do
 			b.Text = label
 			b.TextTruncate = Enum.TextTruncate.AtEnd
 			b.Parent = holder
-			corner(b, 6)
+			corner(b, 3)
 			b.MouseButton1Click:Connect(function()
 				set(value)
 				refresh()
@@ -5077,7 +5077,7 @@ do
 			b.Text = ""
 			b:SetAttribute("keep", true)
 			b.Parent = holder
-			corner(b, 6)
+			corner(b, 3)
 			b.MouseButton1Click:Connect(function() set(c) end)
 		end
 	end
@@ -5445,7 +5445,7 @@ do
 			b.TextColor3 = T.Text
 			b.Text = '<font size="18">' .. icon .. "</font>\n" .. label
 			b.Parent = grid
-			corner(b, 8)
+			corner(b, 3)
 			stroke(b, T.Stroke, 1)
 			if id:sub(1, 1) == "@" then
 				if id == "@Delete" then b.TextColor3 = T.Danger end
@@ -5479,7 +5479,7 @@ do
 			b.TextColor3 = T.Text
 			b.Text = text
 			b.Parent = undoRow
-			corner(b, 8)
+			corner(b, 3)
 			stroke(b, T.Stroke, 1)
 			b.MouseButton1Click:Connect(cb)
 		end
