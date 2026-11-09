@@ -2022,18 +2022,18 @@ do
 	local TextService = game:GetService("TextService")
 
 	local T = {
-		Bg        = Color3.fromRGB(18, 18, 17),
-		Panel     = Color3.fromRGB(23, 23, 22),
-		Card      = Color3.fromRGB(29, 29, 27),
-		CardHover = Color3.fromRGB(39, 39, 35),
-		Stroke    = Color3.fromRGB(52, 51, 45),
-		Off       = Color3.fromRGB(57, 56, 51),
-		Accent    = M.Accent,
-		Text      = Color3.fromRGB(226, 224, 213),
-		SubText   = Color3.fromRGB(135, 135, 145),
-		On        = Color3.fromRGB(226, 211, 125),
+		Bg        = Color3.fromRGB(15, 15, 14),
+		Panel     = Color3.fromRGB(20, 20, 19),
+		Card      = Color3.fromRGB(23, 23, 22),
+		CardHover = Color3.fromRGB(31, 31, 29),
+		Stroke    = Color3.fromRGB(39, 39, 36),
+		Off       = Color3.fromRGB(48, 48, 44),
+		Accent    = Color3.fromRGB(242, 224, 112),
+		Text      = Color3.fromRGB(232, 230, 222),
+		SubText   = Color3.fromRGB(160, 158, 151),
+		On        = Color3.fromRGB(242, 224, 112),
 		Danger    = Color3.fromRGB(184, 91, 77),
-		Dark      = Color3.fromRGB(14, 14, 13),
+		Dark      = Color3.fromRGB(12, 12, 11),
 	}
 	U.T = T
 
@@ -2158,8 +2158,8 @@ do
 	----------------------------------------------------------------
 	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
-	local HEAD_H = 48
-	local SIDE_W = 205
+	local HEAD_H = 0
+	local SIDE_W = 215
 	local FULL = UDim2.new(0, M.Width, 0, M.Height)
 
 	local main = Instance.new("Frame")
@@ -2167,13 +2167,13 @@ do
 	main.AnchorPoint = Vector2.new(0.5, 0.5)
 	main.Position = M.StartPosition
 	main.Size = FULL
-	main.BackgroundColor3 = Color3.new(1, 1, 1)
+	main.BackgroundColor3 = Color3.fromRGB(16, 16, 15)
 	main.BackgroundTransparency = 0
 	main.BorderSizePixel = 0
 	main.Active = true
 	main.ClipsDescendants = true
 	main.Parent = gui
-	corner(main, 4)
+	corner(main, 0)
 	V.main = main
 	U.main = main
 	menuFrameRef = main
@@ -2183,8 +2183,8 @@ do
 
 	do
 		local bg = Instance.new("UIGradient")
-		bg.Color = ColorSequence.new(Color3.fromRGB(25, 25, 23), Color3.fromRGB(18, 18, 17))
-		bg.Rotation = 125
+		bg.Color = ColorSequence.new(Color3.fromRGB(19, 19, 18), Color3.fromRGB(13, 13, 12))
+		bg.Rotation = 90
 		bg.Parent = main
 
 		-- bordure animée
@@ -2307,6 +2307,7 @@ do
 	header.ZIndex = 5
 	header.Parent = main
 	V.header = header
+	header.Visible = false
 
 	do
 		local line = Instance.new("Frame")
@@ -2534,16 +2535,16 @@ do
 	local sidebar = Instance.new("Frame")
 	sidebar.Name = "Sidebar"
 	sidebar.Size = UDim2.new(0, SIDE_W, 1, 0)
-	sidebar.BackgroundColor3 = T.Panel
-	sidebar.BackgroundTransparency = 0.3
+	sidebar.BackgroundColor3 = Color3.fromRGB(19, 19, 18)
+	sidebar.BackgroundTransparency = 0
 	sidebar.BorderSizePixel = 0
 	sidebar.ZIndex = 2
 	sidebar.Parent = body
 	V.sidebar = sidebar
 
 	local NAV = {
-		{ "Home", "★" }, { "Movement", "➤" }, { "Combat", "✦" }, { "Troll", "☠" }, { "Visuals", "◉" }, { "Teleport", "◎" },
-		{ "Player", "●" }, { "BTools", "✎" }, { "Misc", "☰" }, { "Settings", "⚙" },
+		{ "Home", "" }, { "Movement", "" }, { "Visuals", "" }, { "Player", "" }, { "Misc", "" },
+		{ "Troll", "" }, { "Teleport", "" }, { "BTools", "" }, { "Combat", "" }, { "Settings", "" },
 	}
 
 	do
@@ -2558,8 +2559,9 @@ do
 
 		local nav = Instance.new("Frame")
 		nav.Name = "Nav"
+		nav.Position = UDim2.new(0, 0, 0, 118)
 		nav.BackgroundTransparency = 1
-		nav.Size = UDim2.new(1, 0, 1, -80)
+		nav.Size = UDim2.new(1, 0, 1, -132)
 		nav.ZIndex = 3
 		nav.Parent = sidebar
 		V.nav = nav
@@ -2567,24 +2569,25 @@ do
 		-- pastille pleine qui glisse sous l'onglet actif
 		local pill = Instance.new("Frame")
 		pill.Name = "Pill"
-		pill.Position = UDim2.new(0, 10, 0, 14)
-		pill.Size = UDim2.new(1, -20, 0, 40)
+		pill.Position = UDim2.new(0, 8, 0, 0)
+		pill.Size = UDim2.new(1, -16, 0, 36)
 		pill.BackgroundColor3 = Color3.new(1, 1, 1)
 		pill.BorderSizePixel = 0
 		pill.ZIndex = 3
 		pill.Parent = nav
-		corner(pill, 2)
-		accentGradient(pill, 0)
+		corner(pill, 0)
+		pill.BackgroundColor3 = Color3.fromRGB(31, 30, 27)
 		local pst = stroke(pill, T.Accent, 1)
-		pst.Transparency = 0.2
+		pst.Transparency = 0.05
 		V.pill = pill
 
+		local navLabels = { Home = "Main", Movement = "Client", Combat = "Shop", Troll = "World", Visuals = "Visuals", Teleport = "Waypoints", Player = "Players", BTools = "Animations", Misc = "Shop", Settings = "Settings" }
 		for i, e in ipairs(NAV) do
 			local name, icon = e[1], e[2]
 			local item = Instance.new("TextButton")
 			item.Name = "Nav_" .. name
-			item.Position = UDim2.new(0, 10, 0, 14 + (i - 1) * 44)
-			item.Size = UDim2.new(1, -20, 0, 40)
+			item.Position = UDim2.new(0, 8, 0, (i - 1) * 39)
+			item.Size = UDim2.new(1, -16, 0, 36)
 			item.BackgroundTransparency = 1
 			item.AutoButtonColor = false
 			item.Text = ""
@@ -2592,16 +2595,16 @@ do
 			item.Parent = nav
 			local ic = Instance.new("TextLabel")
 			ic.BackgroundTransparency = 1
-			ic.Size = UDim2.new(0, 44, 1, 0)
+			ic.Size = UDim2.new(0, 0, 1, 0)
 			ic.Font = Enum.Font.GothamMedium
-			ic.TextSize = 18
+			ic.TextSize = 1
 			ic.TextColor3 = T.Text
-			ic.Text = icon
+			ic.Text = ""
 			ic.ZIndex = 6
 			ic.Parent = item
-			local tx = newLabel(item, name, 14, T.SubText, Enum.Font.GothamMedium)
-			tx.Position = UDim2.new(0, 44, 0, 0)
-			tx.Size = UDim2.new(1, -48, 1, 0)
+			local tx = newLabel(item, navLabels[name] or name, 14, T.SubText, Enum.Font.GothamMedium)
+			tx.Position = UDim2.new(0, 14, 0, 0)
+			tx.Size = UDim2.new(1, -20, 1, 0)
 			tx.ZIndex = 6
 			item.MouseEnter:Connect(function()
 				if N.nav ~= name then
@@ -2616,7 +2619,7 @@ do
 				tw(ic, { Position = UDim2.new(0, 0, 0, 0) }, 0.15)
 			end)
 			item.MouseButton1Click:Connect(function() N.selectPage(name) end)
-			N.navs[name] = { item = item, txt = tx, icon = ic, y = 14 + (i - 1) * 44 }
+			N.navs[name] = { item = item, txt = tx, icon = ic, y = (i - 1) * 39 }
 			table.insert(N.navOrder, name)
 		end
 
@@ -2629,6 +2632,7 @@ do
 		card.BorderSizePixel = 0
 		card.ZIndex = 3
 		card.Parent = sidebar
+		card.Visible = false
 		corner(card, 3)
 		stroke(card, T.Stroke, 1)
 		local av = Instance.new("ImageLabel")
@@ -2656,6 +2660,54 @@ do
 		st2.ZIndex = 4
 		st2.TextTruncate = Enum.TextTruncate.AtEnd
 		V.userNm, V.userSt = nm, st2
+
+		local logo = Instance.new("Frame")
+		logo.Name = "EyeLogo"
+		logo.BackgroundTransparency = 1
+		logo.Position = UDim2.new(0, 10, 0, 5)
+		logo.Size = UDim2.new(1, -20, 0, 104)
+		logo.ZIndex = 5
+		logo.Parent = sidebar
+		local eye = Instance.new("TextLabel")
+		eye.BackgroundTransparency = 1
+		eye.AnchorPoint = Vector2.new(0.5, 0.5)
+		eye.Position = UDim2.new(0.5, 0, 0.5, 0)
+		eye.Size = UDim2.new(0, 112, 0, 72)
+		eye.Font = Enum.Font.GothamMedium
+		eye.Text = "◎"
+		eye.TextSize = 76
+		eye.TextColor3 = T.Accent
+		eye.ZIndex = 6
+		eye.Parent = logo
+		for i = 1, 8 do
+			local ray = Instance.new("Frame")
+			ray.AnchorPoint = Vector2.new(0.5, 0.5)
+			ray.Size = UDim2.new(0, 2, 0, (i % 2 == 0) and 17 or 25)
+			ray.Position = UDim2.new(0.5, math.cos((i - 1) * math.pi / 4) * 62, 0.5, math.sin((i - 1) * math.pi / 4) * 34)
+			ray.Rotation = (i - 1) * 45
+			ray.BackgroundColor3 = T.Accent
+			ray.BorderSizePixel = 0
+			ray.ZIndex = 5
+			ray.Parent = logo
+		end
+		local logoLine = Instance.new("Frame")
+		logoLine.Position = UDim2.new(0, 8, 1, -1)
+		logoLine.Size = UDim2.new(1, -16, 0, 1)
+		logoLine.BackgroundColor3 = T.Stroke
+		logoLine.BorderSizePixel = 0
+		logoLine.Parent = logo
+
+		local bottomSearch = Instance.new("TextLabel")
+		bottomSearch.Name = "BottomSearch"
+		bottomSearch.BackgroundTransparency = 1
+		bottomSearch.Position = UDim2.new(0, 18, 1, -38)
+		bottomSearch.Size = UDim2.new(0, 70, 0, 26)
+		bottomSearch.Font = Enum.Font.GothamMedium
+		bottomSearch.Text = "⌕  ..."
+		bottomSearch.TextSize = 16
+		bottomSearch.TextXAlignment = Enum.TextXAlignment.Left
+		bottomSearch.TextColor3 = T.SubText
+		bottomSearch.Parent = sidebar
 	end
 
 	-- zone de contenu (CanvasGroup : fondu + glissement à chaque changement d'onglet)
@@ -2760,10 +2812,194 @@ do
 		tw(area, { GroupTransparency = 0, Position = AREA_POS }, 0.4)
 	end
 
+	local playersPage = Instance.new("Frame")
+	playersPage.Name = "PlayersReferenceLayout"
+	playersPage.BackgroundTransparency = 1
+	playersPage.Size = UDim2.new(1, 0, 1, 0)
+	playersPage.Visible = false
+	playersPage.ZIndex = 10
+	playersPage.Parent = area
+
+	local playerSearch = Instance.new("TextBox")
+	playerSearch.Name = "PlayerSearch"
+	playerSearch.Position = UDim2.new(0, 8, 0, 8)
+	playerSearch.Size = UDim2.new(1, -16, 0, 40)
+	playerSearch.BackgroundColor3 = Color3.fromRGB(16, 16, 15)
+	playerSearch.BorderSizePixel = 0
+	playerSearch.Font = Enum.Font.Gotham
+	playerSearch.TextSize = 13
+	playerSearch.TextColor3 = T.Text
+	playerSearch.PlaceholderColor3 = T.SubText
+	playerSearch.PlaceholderText = "Search players..."
+	playerSearch.Text = ""
+	playerSearch.ClearTextOnFocus = false
+	playerSearch.TextXAlignment = Enum.TextXAlignment.Left
+	playerSearch.ZIndex = 11
+	playerSearch.Parent = playersPage
+	stroke(playerSearch, T.Stroke, 1)
+	local playerSearchPad = Instance.new("UIPadding")
+	playerSearchPad.PaddingLeft = UDim.new(0, 12)
+	playerSearchPad.Parent = playerSearch
+
+	local playerList = Instance.new("ScrollingFrame")
+	playerList.Name = "PlayerList"
+	playerList.Position = UDim2.new(0, 8, 0, 56)
+	playerList.Size = UDim2.new(1, -16, 0, 178)
+	playerList.BackgroundColor3 = Color3.fromRGB(17, 17, 16)
+	playerList.BorderSizePixel = 1
+	playerList.BorderColor3 = T.Stroke
+	playerList.ScrollBarThickness = 3
+	playerList.ScrollBarImageColor3 = T.Accent
+	playerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	playerList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	playerList.ZIndex = 11
+	playerList.Parent = playersPage
+	local playerListLayout = Instance.new("UIListLayout")
+	playerListLayout.Padding = UDim.new(0, 0)
+	playerListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	playerListLayout.Parent = playerList
+
+	local selectedPlayer = nil
+	local profile = Instance.new("Frame")
+	profile.Name = "SelectedPlayer"
+	profile.BackgroundTransparency = 1
+	profile.Position = UDim2.new(0, 8, 0, 250)
+	profile.Size = UDim2.new(1, -16, 1, -258)
+	profile.ZIndex = 11
+	profile.Parent = playersPage
+	local avatar = Instance.new("ImageLabel")
+	avatar.BackgroundTransparency = 1
+	avatar.Position = UDim2.new(0, 12, 0, 95)
+	avatar.Size = UDim2.new(0, 48, 0, 58)
+	avatar.ScaleType = Enum.ScaleType.Fit
+	avatar.ZIndex = 12
+	avatar.Parent = profile
+	local profileText = Instance.new("TextLabel")
+	profileText.BackgroundTransparency = 1
+	profileText.Position = UDim2.new(0, 72, 0, 70)
+	profileText.Size = UDim2.new(0.48, -72, 0, 100)
+	profileText.Font = Enum.Font.Gotham
+	profileText.TextSize = 11
+	profileText.TextColor3 = T.Text
+	profileText.TextXAlignment = Enum.TextXAlignment.Left
+	profileText.TextYAlignment = Enum.TextYAlignment.Top
+	profileText.TextWrapped = true
+	profileText.ZIndex = 12
+	profileText.Parent = profile
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Position = UDim2.new(0.58, 0, 0, 82)
+	statusLabel.Size = UDim2.new(0.38, 0, 0, 18)
+	statusLabel.Font = Enum.Font.Gotham
+	statusLabel.Text = "Status:"
+	statusLabel.TextSize = 12
+	statusLabel.TextColor3 = T.Text
+	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	statusLabel.ZIndex = 12
+	statusLabel.Parent = profile
+	local status = Instance.new("TextButton")
+	status.Position = UDim2.new(0.58, 0, 0, 106)
+	status.Size = UDim2.new(0.4, -2, 0, 34)
+	status.BackgroundColor3 = Color3.fromRGB(25, 25, 24)
+	status.BorderSizePixel = 1
+	status.BorderColor3 = T.Stroke
+	status.Font = Enum.Font.Gotham
+	status.Text = "Neutral                         ▾"
+	status.TextSize = 12
+	status.TextColor3 = T.Text
+	status.ZIndex = 12
+	status.Parent = profile
+
+	local actionNames = { "Teleport", "Spectate", "Select as Target", "Highlight" }
+	for i, actionName in ipairs(actionNames) do
+		local action = Instance.new("TextButton")
+		action.Name = "Action_" .. i
+		action.Position = UDim2.new((i - 1) * 0.25, (i == 1 and 0 or 4), 0, 160)
+		action.Size = UDim2.new(0.25, -5, 0, 34)
+		action.BackgroundColor3 = Color3.fromRGB(25, 25, 24)
+		action.BorderSizePixel = 1
+		action.BorderColor3 = T.Stroke
+		action.AutoButtonColor = true
+		action.Font = Enum.Font.Gotham
+		action.Text = actionName
+		action.TextSize = 11
+		action.TextColor3 = T.Text
+		action.ZIndex = 12
+		action.Parent = profile
+	end
+
+	local function rebuildPlayerList()
+		for _, child in ipairs(playerList:GetChildren()) do
+			if child:IsA("TextButton") then child:Destroy() end
+		end
+		local query = playerSearch.Text:lower()
+		local ordered = Players:GetPlayers()
+		table.sort(ordered, function(a, b) return a.Name:lower() < b.Name:lower() end)
+		for index, plr in ipairs(ordered) do
+			if plr ~= player and (query == "" or plr.Name:lower():find(query, 1, true) or plr.DisplayName:lower():find(query, 1, true)) then
+				local row = Instance.new("TextButton")
+				row.Name = "PlayerRow_" .. plr.UserId
+				row.LayoutOrder = index
+				row.Size = UDim2.new(1, -3, 0, 29)
+				row.BackgroundColor3 = selectedPlayer == plr and Color3.fromRGB(37, 36, 30) or Color3.fromRGB(17, 17, 16)
+				row.BackgroundTransparency = 0
+				row.BorderSizePixel = 0
+				row.Font = Enum.Font.Gotham
+				row.Text = ""
+				row.TextSize = 11
+				row.TextColor3 = T.Text
+				row.TextXAlignment = Enum.TextXAlignment.Left
+				row.ZIndex = 12
+				row.Parent = playerList
+				local function column(text, x, width, align)
+					local label = Instance.new("TextLabel")
+					label.BackgroundTransparency = 1
+					label.Position = UDim2.new(x, 0, 0, 0)
+					label.Size = UDim2.new(width, -6, 1, 0)
+					label.Font = Enum.Font.Gotham
+					label.Text = text
+					label.TextSize = 11
+					label.TextColor3 = T.Text
+					label.TextXAlignment = align or Enum.TextXAlignment.Left
+					label.TextTruncate = Enum.TextTruncate.AtEnd
+					label.ZIndex = 13
+					label.Parent = row
+				end
+				column(plr.DisplayName .. " - (" .. plr.Name .. ")", 0.02, 0.56)
+				column("None", 0.58, 0.16)
+				column("Neutral", 0.76, 0.21, Enum.TextXAlignment.Right)
+				local separator = Instance.new("Frame")
+				separator.Position = UDim2.new(0, 0, 1, -1)
+				separator.Size = UDim2.new(1, 0, 0, 1)
+				separator.BackgroundColor3 = T.Stroke
+				separator.BorderSizePixel = 0
+				separator.ZIndex = 13
+				separator.Parent = row
+				row.MouseButton1Click:Connect(function()
+					selectedPlayer = plr
+					profileText.Text = string.format("%s - (%s) - %d\nAccount Age: %d days\nUserId: %d\nStatus: Neutral", plr.DisplayName, plr.Name, plr.UserId, plr.AccountAge, plr.UserId)
+					local ok, image = pcall(function() return Players:GetUserThumbnailAsync(plr.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100) end)
+					if ok then avatar.Image = image end
+					rebuildPlayerList()
+				end)
+			end
+		end
+	end
+	playerSearch:GetPropertyChangedSignal("Text"):Connect(rebuildPlayerList)
+	Players.PlayerAdded:Connect(rebuildPlayerList)
+	Players.PlayerRemoving:Connect(function(plr)
+		if selectedPlayer == plr then selectedPlayer = nil profileText.Text = "Select a player" avatar.Image = "" end
+		rebuildPlayerList()
+	end)
+	rebuildPlayerList()
+	profileText.Text = "Select a player from the list"
+
 	function N.selectPage(name)
 		local nv = N.navs[name]
 		if not nv then return end
 		N.nav = name
+		playersPage.Visible = (name == "Player")
+		scroll.Visible = (name ~= "Player")
 		for n, e in pairs(N.navs) do
 			local on = (n == name)
 			tw(e.txt, { TextColor3 = on and Color3.new(1, 1, 1) or T.SubText }, 0.15)
@@ -2954,8 +3190,8 @@ do
 		card.BackgroundTransparency = 0.1
 		card.BorderSizePixel = 0
 		card.Parent = pool
-		corner(card, 3)
-		local st = stroke(card, T.Stroke, 1.2)
+		corner(card, 0)
+		local st = stroke(card, T.Stroke, 1)
 		local gr = Instance.new("UIGradient")
 		gr.Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(190, 200, 225))
 		gr.Rotation = 90
@@ -3811,7 +4047,7 @@ do
 
 	-- animation d'apparition au lancement
 	scale.Scale = 0.88
-	N.selectPage("Home")
+	N.selectPage("Player")
 	tw(scale, { Scale = 1 }, 0.6, Enum.EasingStyle.Back)
 	U.updateFx()
 	U.setShimmer(M.AnimBorder)
