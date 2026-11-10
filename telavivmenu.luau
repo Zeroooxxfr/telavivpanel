@@ -2860,6 +2860,34 @@ do
 	playerListLayout.Parent = playerList
 
 	local selectedPlayer = nil
+	local selectedTargetPlayer = nil
+	local playerStatuses = {}
+	local playerActionHighlights = {}
+	local statusOptions = { "Neutral", "Friend", "Enemy" }
+	local function setPlayerActionHighlight(plr, enabled)
+		if not plr then return false end
+		local existing = playerActionHighlights[plr]
+		if enabled == nil then enabled = existing == nil end
+		if not enabled then
+			if existing then existing:Destroy() end
+			playerActionHighlights[plr] = nil
+			return false
+		end
+		if existing then existing:Destroy() end
+		local character = plr.Character
+		if not character then return false end
+		local highlight = Instance.new("Highlight")
+		highlight.Name = "PlayersPageHighlight"
+		highlight.FillColor = Color3.fromRGB(255, 225, 105)
+		highlight.OutlineColor = Color3.fromRGB(255, 245, 185)
+		highlight.FillTransparency = 0.72
+		highlight.OutlineTransparency = 0
+		highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+		highlight.Adornee = character
+		highlight.Parent = character
+		playerActionHighlights[plr] = highlight
+		return true
+	end
 	local profile = Instance.new("Frame")
 	profile.Name = "SelectedPlayer"
 	profile.BackgroundTransparency = 1
@@ -2911,6 +2939,8 @@ do
 	status.Parent = profile
 
 	local actionNames = { "Teleport", "Spectate", "Select as Target", "Highlight" }
+	local actionButtons = {}
+	local rebuildPlayerList
 	for i, actionName in ipairs(actionNames) do
 		local action = Instance.new("TextButton")
 		action.Name = "Action_" .. i
@@ -2926,9 +2956,63 @@ do
 		action.TextColor3 = T.Text
 		action.ZIndex = 12
 		action.Parent = profile
+		actionButtons[i] = action
 	end
 
-	local function rebuildPlayerList()
+	local function updateSelectedProfile()
+		if not selectedPlayer then return end
+		local currentStatus = playerStatuses[selectedPlayer.UserId] or "Neutral"
+		profileText.Text = string.format("%s - (%s) - %d\nAccount Age: %d days\nUserId: %d\nStatus: %s", selectedPlayer.DisplayName, selectedPlayer.Name, selectedPlayer.UserId, selectedPlayer.AccountAge, selectedPlayer.UserId, currentStatus)
+		status.Text = currentStatus .. "                         ▾"
+		local highlighted = playerActionHighlights[selectedPlayer] ~= nil
+		actionButtons[4].Text = highlighted and "Unhighlight" or "Highlight"
+	end
+
+	status.MouseButton1Click:Connect(function()
+		if not selectedPlayer then U.notify("Sélectionne d'abord un joueur") return end
+		local current = playerStatuses[selectedPlayer.UserId] or "Neutral"
+		local nextIndex = 1
+		for i, value in ipairs(statusOptions) do if value == current then nextIndex = i break end end
+		local nextStatus = statusOptions[(nextIndex % #statusOptions) + 1]
+		playerStatuses[selectedPlayer.UserId] = nextStatus
+		updateSelectedProfile()
+		rebuildPlayerList()
+	end)
+
+	actionButtons[1].MouseButton1Click:Connect(function()
+		if not selectedPlayer then U.notify("Sélectionne d'abord un joueur") return end
+		if selectedPlayer.Character and selectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			tpToPlayer(selectedPlayer)
+			U.notify("Téléporté près de " .. selectedPlayer.Name)
+		else
+			U.notify("Personnage indisponible")
+		end
+	end)
+	actionButtons[2].MouseButton1Click:Connect(function()
+		if not selectedPlayer then U.notify("Sélectionne d'abord un joueur") return end
+		if Config.View.Enabled and Config.View.Target == selectedPlayer.Name then
+			stopView()
+			U.notify("Spectate arrêté")
+		else
+			viewPlayer(selectedPlayer)
+			U.notify("Spectate : " .. selectedPlayer.Name)
+		end
+	end)
+	actionButtons[3].MouseButton1Click:Connect(function()
+		if not selectedPlayer then U.notify("Sélectionne d'abord un joueur") return end
+		selectedTargetPlayer = selectedPlayer
+		Config.Orbit.Target = selectedPlayer.Name
+		Config.Bring.Target = selectedPlayer.Name
+		U.notify("Cible sélectionnée : " .. selectedPlayer.Name)
+	end)
+	actionButtons[4].MouseButton1Click:Connect(function()
+		if not selectedPlayer then U.notify("Sélectionne d'abord un joueur") return end
+		local enabled = setPlayerActionHighlight(selectedPlayer, nil)
+		actionButtons[4].Text = enabled and "Unhighlight" or "Highlight"
+		U.notify((enabled and "Highlight : " or "Highlight retiré : ") .. selectedPlayer.Name)
+	end)
+
+	rebuildPlayerList = function()
 		for _, child in ipairs(playerList:GetChildren()) do
 			if child:IsA("TextButton") then child:Destroy() end
 		end
@@ -2967,7 +3051,7 @@ do
 				end
 				column(plr.DisplayName .. " - (" .. plr.Name .. ")", 0.02, 0.56)
 				column("None", 0.58, 0.16)
-				column("Neutral", 0.76, 0.21, Enum.TextXAlignment.Right)
+				column(playerStatuses[plr.UserId] or "Neutral", 0.76, 0.21, Enum.TextXAlignment.Right)
 				local separator = Instance.new("Frame")
 				separator.Position = UDim2.new(0, 0, 1, -1)
 				separator.Size = UDim2.new(1, 0, 0, 1)
@@ -2977,7 +3061,7 @@ do
 				separator.Parent = row
 				row.MouseButton1Click:Connect(function()
 					selectedPlayer = plr
-					profileText.Text = string.format("%s - (%s) - %d\nAccount Age: %d days\nUserId: %d\nStatus: Neutral", plr.DisplayName, plr.Name, plr.UserId, plr.AccountAge, plr.UserId)
+					updateSelectedProfile()
 					local ok, image = pcall(function() return Players:GetUserThumbnailAsync(plr.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100) end)
 					if ok then avatar.Image = image end
 					rebuildPlayerList()
@@ -2988,9 +3072,37 @@ do
 	playerSearch:GetPropertyChangedSignal("Text"):Connect(rebuildPlayerList)
 	Players.PlayerAdded:Connect(rebuildPlayerList)
 	Players.PlayerRemoving:Connect(function(plr)
-		if selectedPlayer == plr then selectedPlayer = nil profileText.Text = "Select a player" avatar.Image = "" end
+		local highlight = playerActionHighlights[plr]
+		if highlight then highlight:Destroy() playerActionHighlights[plr] = nil end
+		playerStatuses[plr.UserId] = nil
+		if selectedPlayer == plr then
+			selectedPlayer = nil
+			profileText.Text = "Select a player"
+			avatar.Image = ""
+			status.Text = "Neutral                         ▾"
+			actionButtons[4].Text = "Highlight"
+		end
+		if selectedTargetPlayer == plr then selectedTargetPlayer = nil end
 		rebuildPlayerList()
 	end)
+	Players.PlayerAdded:Connect(function(plr)
+		plr.CharacterAdded:Connect(function()
+			if playerActionHighlights[plr] then
+				playerActionHighlights[plr] = nil
+				task.wait(0.25)
+				if plr.Parent == Players then setPlayerActionHighlight(plr, true) end
+			end
+		end)
+	end)
+	for _, plr in ipairs(Players:GetPlayers()) do
+		plr.CharacterAdded:Connect(function()
+			if playerActionHighlights[plr] then
+				playerActionHighlights[plr] = nil
+				task.wait(0.25)
+				if plr.Parent == Players then setPlayerActionHighlight(plr, true) end
+			end
+		end)
+	end
 	rebuildPlayerList()
 	profileText.Text = "Select a player from the list"
 
