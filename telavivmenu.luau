@@ -1,6 +1,6 @@
 --=====================================================================
--- LocalScript (StarterPlayer > StarterPlayerScripts)
--- Tel Aviv Menu v2 - Optimisé & Amélioré
+-- Tel Aviv Menu v3 - Autonome & Corrigé
+-- Fonctionne sur : Synapse X, Fluxus, Delta, Hydrogen, Solara, etc.
 --=====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -194,8 +194,8 @@ local Config = {
     },
 
     Menu = {
-        Name = "telavivmenu",
-        Title = "Tel Aviv Menu",
+        Name = "telavivmenu_v3",
+        Title = "Tel Aviv Menu [Auto]",
         Accent = Color3.fromRGB(226, 211, 125),
         Blur = false,
         BlurSize = 20,
@@ -1236,7 +1236,7 @@ do
 end
 
 ----------------------------------------------------------------------
--- Menu UI (Simplifié pour gagner des lignes)
+-- Menu UI Automatique (Créé au lancement)
 ----------------------------------------------------------------------
 do
     local menuGui = Instance.new("ScreenGui")
