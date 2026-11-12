@@ -198,6 +198,12 @@ local Config = {
 		OutlineTransparency = 0,
 	},
 
+	AimTracer = {
+		Enabled = false,
+		Color = Color3.fromRGB(235, 55, 35),
+		Thickness = 2,
+	},
+
 	FOVCircle = {
 		Show = true,
 		Color = Color3.new(1, 1, 1),
@@ -278,16 +284,16 @@ local Config = {
 	Menu = {
 		Name = "telavivmenu",
 		Title = "Tel Aviv Menu",
-		Accent = Color3.fromRGB(226, 211, 125),
+		Accent = Color3.fromRGB(235, 55, 35),
 		Blur = false,           -- flou d'arrière-plan quand le panel est ouvert
 		BlurSize = 20,
 		Dim = 0,             -- assombrissement derrière le panel (0 à 1)
 		Animations = true,
 		AnimBorder = false,     -- bordure animée
-		Width = 760,
-		Height = 540,
-		DefaultWidth = 760,
-		DefaultHeight = 540,
+		Width = 1140,
+		Height = 746,
+		DefaultWidth = 1140,
+		DefaultHeight = 746,
 		StartPosition = UDim2.new(0.5, 0, 0.5, 0), -- centré
 	},}
 
@@ -761,6 +767,37 @@ task.spawn(function()
 	local oldFov = pg:FindFirstChild("telavivfov")
 	if oldFov then oldFov:Destroy() end
 	fovGui.Parent = pg
+end)
+
+local aimTracerLine = Instance.new("Frame")
+aimTracerLine.Name = "AimTracer"
+aimTracerLine.AnchorPoint = Vector2.new(0.5, 0.5)
+aimTracerLine.BorderSizePixel = 0
+aimTracerLine.BackgroundColor3 = Config.AimTracer.Color
+aimTracerLine.Size = UDim2.fromOffset(2, 2)
+aimTracerLine.Visible = false
+aimTracerLine.ZIndex = 5
+aimTracerLine.Parent = fovGui
+
+RunService.RenderStepped:Connect(function()
+	local cfg = Config.AimTracer
+	if not cfg.Enabled then
+		aimTracerLine.Visible = false
+		return
+	end
+	local screenPos = getClosestTarget(Config.Aimbot, Config.Aimbot.TargetPart, false)
+	if not screenPos then
+		aimTracerLine.Visible = false
+		return
+	end
+	local vp = camera.ViewportSize
+	local origin = Vector2.new(vp.X * 0.5, vp.Y - 28)
+	local delta = screenPos - origin
+	aimTracerLine.Position = UDim2.fromOffset((origin.X + screenPos.X) * 0.5, (origin.Y + screenPos.Y) * 0.5)
+	aimTracerLine.Size = UDim2.fromOffset(delta.Magnitude, math.max(1, cfg.Thickness))
+	aimTracerLine.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+	aimTracerLine.BackgroundColor3 = cfg.Color
+	aimTracerLine.Visible = true
 end)
 
 RunService.RenderStepped:Connect(function()
@@ -1734,10 +1771,10 @@ do
 		CardHover = Color3.fromRGB(31, 31, 29),
 		Stroke    = Color3.fromRGB(39, 39, 36),
 		Off       = Color3.fromRGB(48, 48, 44),
-		Accent    = Color3.fromRGB(242, 224, 112),
+		Accent    = Color3.fromRGB(235, 55, 35),
 		Text      = Color3.fromRGB(232, 230, 222),
 		SubText   = Color3.fromRGB(160, 158, 151),
-		On        = Color3.fromRGB(242, 224, 112),
+		On        = Color3.fromRGB(235, 55, 35),
 		Danger    = Color3.fromRGB(184, 91, 77),
 		Dark      = Color3.fromRGB(12, 12, 11),
 	}
@@ -1865,7 +1902,7 @@ do
 	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
 	local HEAD_H = 0
-	local SIDE_W = 215
+	local SIDE_W = 218
 	local FULL = UDim2.new(0, M.Width, 0, M.Height)
 
 	local main = Instance.new("Frame")
@@ -1873,7 +1910,7 @@ do
 	main.AnchorPoint = Vector2.new(0.5, 0.5)
 	main.Position = M.StartPosition
 	main.Size = FULL
-	main.BackgroundColor3 = Color3.fromRGB(16, 16, 15)
+	main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 	main.BackgroundTransparency = 0
 	main.BorderSizePixel = 0
 	main.Active = true
@@ -2241,7 +2278,7 @@ do
 	local sidebar = Instance.new("Frame")
 	sidebar.Name = "Sidebar"
 	sidebar.Size = UDim2.new(0, SIDE_W, 1, 0)
-	sidebar.BackgroundColor3 = Color3.fromRGB(19, 19, 18)
+	sidebar.BackgroundColor3 = Color3.fromRGB(17, 17, 17)
 	sidebar.BackgroundTransparency = 0
 	sidebar.BorderSizePixel = 0
 	sidebar.ZIndex = 2
@@ -2249,8 +2286,9 @@ do
 	V.sidebar = sidebar
 
 	local NAV = {
-		{ "Home", "" }, { "Movement", "" }, { "Visuals", "" }, { "Player", "" }, { "Misc", "" },
-		{ "Troll", "" }, { "Teleport", "" }, { "BTools", "" }, { "Combat", "" }, { "Settings", "" },
+		{ "Home", "" }, { "Movement", "" }, { "Combat", "" }, { "Visuals", "" },
+		{ "Troll", "" }, { "Player", "" }, { "Teleport", "" }, { "Settings", "" },
+		{ "BTools", "" }, { "Misc", "" },
 	}
 
 	do
@@ -2265,9 +2303,9 @@ do
 
 		local nav = Instance.new("Frame")
 		nav.Name = "Nav"
-		nav.Position = UDim2.new(0, 0, 0, 118)
+		nav.Position = UDim2.new(0, 0, 0, 168)
 		nav.BackgroundTransparency = 1
-		nav.Size = UDim2.new(1, 0, 1, -132)
+		nav.Size = UDim2.new(1, 0, 1, -180)
 		nav.ZIndex = 3
 		nav.Parent = sidebar
 		V.nav = nav
@@ -2275,24 +2313,29 @@ do
 		-- pastille pleine qui glisse sous l'onglet actif
 		local pill = Instance.new("Frame")
 		pill.Name = "Pill"
-		pill.Position = UDim2.new(0, 8, 0, 0)
-		pill.Size = UDim2.new(1, -16, 0, 36)
-		pill.BackgroundColor3 = Color3.new(1, 1, 1)
+		pill.Position = UDim2.new(0, 7, 0, 0)
+		pill.Size = UDim2.new(0, 4, 0, 32)
+		pill.BackgroundColor3 = T.Accent
 		pill.BorderSizePixel = 0
 		pill.ZIndex = 3
 		pill.Parent = nav
 		corner(pill, 0)
-		pill.BackgroundColor3 = Color3.fromRGB(31, 30, 27)
 		local pst = stroke(pill, T.Accent, 1)
-		pst.Transparency = 0.05
+		pst.Transparency = 1
 		V.pill = pill
 
-		local navLabels = { Home = "Main", Movement = "Client", Combat = "Shop", Troll = "World", Visuals = "Visuals", Teleport = "Waypoints", Player = "Players", BTools = "Animations", Misc = "Shop", Settings = "Settings" }
+		local navLabels = {
+			Home = "Aimbot", Movement = "Trigger", Combat = "Silent Aim", Visuals = "Visuals",
+			Troll = "Rage", Player = "Player", Teleport = "Local Players", Settings = "Settings",
+			BTools = "Config", Misc = "Dex",
+		}
+		local navY = { 0, 44, 104, 148, 211, 255, 316, 362, 420, 464 }
 		for i, e in ipairs(NAV) do
 			local name, icon = e[1], e[2]
+			local y = navY[i]
 			local item = Instance.new("TextButton")
 			item.Name = "Nav_" .. name
-			item.Position = UDim2.new(0, 8, 0, (i - 1) * 39)
+			item.Position = UDim2.new(0, 8, 0, y)
 			item.Size = UDim2.new(1, -16, 0, 36)
 			item.BackgroundTransparency = 1
 			item.AutoButtonColor = false
@@ -2309,8 +2352,9 @@ do
 			ic.ZIndex = 6
 			ic.Parent = item
 			local tx = newLabel(item, navLabels[name] or name, 14, T.SubText, Enum.Font.GothamMedium)
-			tx.Position = UDim2.new(0, 14, 0, 0)
-			tx.Size = UDim2.new(1, -20, 1, 0)
+			tx.Position = UDim2.new(0, 4, 0, 0)
+			tx.Size = UDim2.new(1, -8, 1, 0)
+			tx.TextXAlignment = Enum.TextXAlignment.Center
 			tx.ZIndex = 6
 			item.MouseEnter:Connect(function()
 				if N.nav ~= name then
@@ -2325,9 +2369,36 @@ do
 				tw(ic, { Position = UDim2.new(0, 0, 0, 0) }, 0.15)
 			end)
 			item.MouseButton1Click:Connect(function() N.selectPage(name) end)
-			N.navs[name] = { item = item, txt = tx, icon = ic, y = (i - 1) * 39 }
+			N.navs[name] = { item = item, txt = tx, icon = ic, y = y }
 			table.insert(N.navOrder, name)
 		end
+
+		for _, y in ipairs({ 86, 192, 296, 344, 400, 504 }) do
+			local separator = Instance.new("Frame")
+			separator.Name = "NavSeparator"
+			separator.Position = UDim2.new(0, 14, 0, y)
+			separator.Size = UDim2.new(1, -28, 0, 1)
+			separator.BackgroundColor3 = T.Stroke
+			separator.BorderSizePixel = 0
+			separator.ZIndex = 4
+			separator.Parent = nav
+		end
+
+		local colorsButton = Instance.new("TextButton")
+		colorsButton.Name = "Nav_Colors"
+		colorsButton.Position = UDim2.new(0, 8, 0, 524)
+		colorsButton.Size = UDim2.new(1, -16, 0, 36)
+		colorsButton.BackgroundTransparency = 1
+		colorsButton.AutoButtonColor = false
+		colorsButton.Text = ""
+		colorsButton.ZIndex = 5
+		colorsButton.Parent = nav
+		local colorsText = newLabel(colorsButton, "Colors", 14, T.SubText, Enum.Font.GothamMedium)
+		colorsText.Size = UDim2.new(1, -8, 1, 0)
+		colorsText.Position = UDim2.new(0, 4, 0, 0)
+		colorsText.TextXAlignment = Enum.TextXAlignment.Center
+		colorsText.ZIndex = 6
+		colorsButton.MouseButton1Click:Connect(function() N.selectPage("Settings") end)
 
 		-- carte joueur
 		local card = Instance.new("Frame")
@@ -2367,41 +2438,18 @@ do
 		st2.TextTruncate = Enum.TextTruncate.AtEnd
 		V.userNm, V.userSt = nm, st2
 
-		local logo = Instance.new("Frame")
+		local logo = Instance.new("ImageLabel")
 		logo.Name = "EyeLogo"
 		logo.BackgroundTransparency = 1
-		logo.Position = UDim2.new(0, 10, 0, 5)
-		logo.Size = UDim2.new(1, -20, 0, 104)
-		logo.ZIndex = 5
+		logo.BorderSizePixel = 0
+		logo.AnchorPoint = Vector2.new(0.5, 0)
+		logo.Position = UDim2.new(0.5, 0, 0, 12)
+		logo.Size = UDim2.new(0, 166, 0, 128)
+		logo.ScaleType = Enum.ScaleType.Fit
+		logo.Image = "rbxassetid://132100323910003"
+		logo.ImageColor3 = Color3.new(1, 1, 1)
+		logo.ZIndex = 6
 		logo.Parent = sidebar
-		local eye = Instance.new("TextLabel")
-		eye.BackgroundTransparency = 1
-		eye.AnchorPoint = Vector2.new(0.5, 0.5)
-		eye.Position = UDim2.new(0.5, 0, 0.5, 0)
-		eye.Size = UDim2.new(0, 112, 0, 72)
-		eye.Font = Enum.Font.GothamMedium
-		eye.Text = "◎"
-		eye.TextSize = 76
-		eye.TextColor3 = T.Accent
-		eye.ZIndex = 6
-		eye.Parent = logo
-		for i = 1, 8 do
-			local ray = Instance.new("Frame")
-			ray.AnchorPoint = Vector2.new(0.5, 0.5)
-			ray.Size = UDim2.new(0, 2, 0, (i % 2 == 0) and 17 or 25)
-			ray.Position = UDim2.new(0.5, math.cos((i - 1) * math.pi / 4) * 62, 0.5, math.sin((i - 1) * math.pi / 4) * 34)
-			ray.Rotation = (i - 1) * 45
-			ray.BackgroundColor3 = T.Accent
-			ray.BorderSizePixel = 0
-			ray.ZIndex = 5
-			ray.Parent = logo
-		end
-		local logoLine = Instance.new("Frame")
-		logoLine.Position = UDim2.new(0, 8, 1, -1)
-		logoLine.Size = UDim2.new(1, -16, 0, 1)
-		logoLine.BackgroundColor3 = T.Stroke
-		logoLine.BorderSizePixel = 0
-		logoLine.Parent = logo
 
 		local bottomSearch = Instance.new("TextLabel")
 		bottomSearch.Name = "BottomSearch"
@@ -2409,11 +2457,12 @@ do
 		bottomSearch.Position = UDim2.new(0, 18, 1, -38)
 		bottomSearch.Size = UDim2.new(0, 70, 0, 26)
 		bottomSearch.Font = Enum.Font.GothamMedium
-		bottomSearch.Text = "⌕  ..."
+		bottomSearch.Text = ""
 		bottomSearch.TextSize = 16
 		bottomSearch.TextXAlignment = Enum.TextXAlignment.Left
 		bottomSearch.TextColor3 = T.SubText
 		bottomSearch.Parent = sidebar
+		bottomSearch.Visible = false
 	end
 
 	-- zone de contenu (CanvasGroup : fondu + glissement à chaque changement d'onglet)
@@ -2710,7 +2759,7 @@ do
 			local on = (n == name)
 			tw(e.txt, { TextColor3 = on and Color3.new(1, 1, 1) or T.SubText }, 0.15)
 		end
-		tw(V.pill, { Position = UDim2.new(0, 10, 0, nv.y) }, 0.4, Enum.EasingStyle.Back)
+		tw(V.pill, { Position = UDim2.new(0, 7, 0, nv.y) }, 0.4, Enum.EasingStyle.Back)
 		scroll.CanvasPosition = Vector2.new(0, 0)
 		N.layout()
 		animateIn()
@@ -3443,6 +3492,10 @@ do
 
 	makeCard("ESP & Visuals", "◉", { "Home", "Visuals" })
 	makeToggle("ESP", function() return Config.ESP.Enabled end, setESP, keyLabel(Config.Keys.ESP))
+	makeToggle("AimTracer", function() return Config.AimTracer.Enabled end, function(v)
+		Config.AimTracer.Enabled = v
+		refreshUI()
+	end)
 	cfgToggle("FOV Circle", Config.FOVCircle, "Show")
 	makeSub("ESP Settings")
 	makeSwatches("Fill Color", {
