@@ -2666,6 +2666,10 @@ do
 	status.Parent = profile
 
 	local actionNames = { "Teleport", "Spectate", "Select as Target", "Highlight" }
+	local playerActionButtons = {}
+	local highlightedPlayer = nil
+	local playerHighlight = nil
+	local selectedTargetPlayer = nil
 	for i, actionName in ipairs(actionNames) do
 		local action = Instance.new("TextButton")
 		action.Name = "Action_" .. i
@@ -2681,7 +2685,60 @@ do
 		action.TextColor3 = T.Text
 		action.ZIndex = 12
 		action.Parent = profile
+		playerActionButtons[actionName] = action
 	end
+
+	-- Player actions: spectate/highlight/selection are local client features.
+	-- Teleport is requested only through a server RemoteEvent that must perform
+	-- its own admin/permission checks; no client-side permission is trusted.
+	playerActionButtons["Spectate"].MouseButton1Click:Connect(function()
+		if not selectedPlayer or not selectedPlayer.Parent then return end
+		if Config.View.Enabled and Config.View.Target == selectedPlayer.Name then
+			stopView()
+			playerActionButtons["Spectate"].Text = "Spectate"
+		else
+			viewPlayer(selectedPlayer)
+			playerActionButtons["Spectate"].Text = "Stop View"
+		end
+	end)
+	playerActionButtons["Select as Target"].MouseButton1Click:Connect(function()
+		if not selectedPlayer or not selectedPlayer.Parent then return end
+		selectedTargetPlayer = selectedPlayer
+		profileText.Text = profileText.Text .. "\nSelected Target: " .. selectedPlayer.Name
+		playerActionButtons["Select as Target"].Text = "Target Selected"
+	end)
+	playerActionButtons["Highlight"].MouseButton1Click:Connect(function()
+		if not selectedPlayer or not selectedPlayer.Parent then return end
+		if highlightedPlayer == selectedPlayer then
+			if playerHighlight then playerHighlight:Destroy() end
+			playerHighlight, highlightedPlayer = nil, nil
+			playerActionButtons["Highlight"].Text = "Highlight"
+		else
+			if playerHighlight then playerHighlight:Destroy() end
+			highlightedPlayer = selectedPlayer
+			local character = selectedPlayer.Character
+			if character then
+				playerHighlight = Instance.new("Highlight")
+				playerHighlight.Name = "TelavivPlayerHighlight"
+				playerHighlight.FillColor = T.Accent
+				playerHighlight.OutlineColor = Color3.new(1, 1, 1)
+				playerHighlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+				playerHighlight.Adornee = character
+				playerHighlight.Parent = character
+			end
+			playerActionButtons["Highlight"].Text = "Unhighlight"
+		end
+	end)
+	playerActionButtons["Teleport"].MouseButton1Click:Connect(function()
+		if not selectedPlayer or not selectedPlayer.Parent then return end
+		local remote = ReplicatedStorage:FindFirstChild("AdminTeleportPlayer")
+		if remote and remote:IsA("RemoteEvent") then
+			remote:FireServer(selectedPlayer.UserId)
+			if U and U.notify then U.notify("Demande de téléportation envoyée") end
+		else
+			if U and U.notify then U.notify("Téléportation admin indisponible : RemoteEvent serveur requis") end
+		end
+	end)
 
 	local function rebuildPlayerList()
 		for _, child in ipairs(playerList:GetChildren()) do
@@ -2744,6 +2801,13 @@ do
 	Players.PlayerAdded:Connect(rebuildPlayerList)
 	Players.PlayerRemoving:Connect(function(plr)
 		if selectedPlayer == plr then selectedPlayer = nil profileText.Text = "Select a player" avatar.Image = "" end
+		if selectedTargetPlayer == plr then selectedTargetPlayer = nil end
+		if highlightedPlayer == plr then
+			if playerHighlight then playerHighlight:Destroy() end
+			playerHighlight, highlightedPlayer = nil, nil
+			playerActionButtons["Highlight"].Text = "Highlight"
+		end
+		if Config.View.Enabled and Config.View.Target == plr.Name then stopView() end
 		rebuildPlayerList()
 	end)
 	rebuildPlayerList()
