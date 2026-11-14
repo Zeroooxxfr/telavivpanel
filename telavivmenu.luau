@@ -1,7 +1,9 @@
 --=====================================================================
 -- LocalScript (StarterPlayer > StarterPlayerScripts)
 -- Menu : ScreenGui "telavivmenu"
--- Version 5 : panel dashboard (cartes, flou, animations) + Camlock + Rapid Fire + BTools F3X + Walk Fling (1 fichier .luau)
+-- Version 6 : panel dashboard + Camlock + Rapid Fire + BTools F3X + Walk Fling
+--             + Aimbot Camera/Cursor + AimTracer amélioré + Keybinds GUI
+--             + Fly refait + Player actions
 --=====================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -37,7 +39,7 @@ local Config = {
 		FlingPowerUp   = { Enum.KeyCode.Period },
 		JumpPowerDown  = { Enum.KeyCode.Semicolon },
 		JumpPowerUp    = { Enum.KeyCode.Quote },
-		ToggleMenu     = { Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.K, Enum.KeyCode.RightControl }, -- Entrée (ou K / Ctrl droit) = cacher / afficher le panel
+		ToggleMenu     = { Enum.KeyCode.Return, Enum.KeyCode.KeypadEnter, Enum.KeyCode.K, Enum.KeyCode.RightControl },
 		FastMod        = { Enum.KeyCode.J },
 		AutoFire       = { Enum.KeyCode.O },
 		ClickTP        = { Enum.KeyCode.Y },
@@ -48,89 +50,45 @@ local Config = {
 		LoadPos        = { Enum.KeyCode.Delete },
 		BTools         = { Enum.KeyCode.B },
 		BToolsMode     = { Enum.KeyCode.V },
-		BToolsUndo     = { Enum.KeyCode.Z }, -- avec Ctrl
+		BToolsUndo     = { Enum.KeyCode.Z },
 		ViewNext       = { Enum.KeyCode.End },
 		ViewStop       = { Enum.KeyCode.Home },
 	},
 
-	SpinBot = {
-		Enabled = false,
-		Speed = 20,   -- tours par seconde
-		Step = 2,
-	},
+	SpinBot = { Enabled = false, Speed = 20, Step = 2 },
 
-	Orbit = {
-		Enabled = false,
-		Speed = 3,     -- rad/s
-		Step = 0.5,
-		Radius = 10,
-		Height = 2,
-		Target = "",   -- pseudo (vide = joueur le plus proche)
-	},
+	Orbit = { Enabled = false, Speed = 3, Step = 0.5, Radius = 10, Height = 2, Target = "" },
 
-	Fly = {
-		Enabled = false,
-		Speed = 60,
-		Step = 10,
-		UpKey = Enum.KeyCode.Space,
-		DownKey = Enum.KeyCode.LeftControl,
-	},
+	Fly = { Enabled = false, Speed = 60, Step = 10, UpKey = Enum.KeyCode.Space, DownKey = Enum.KeyCode.LeftControl, Mode = "Camera" },
 
-	Noclip = {
-		Enabled = false,
-	},
+	Noclip = { Enabled = false },
 
-	Walk = {
-		Enabled = false, -- false = on ne touche pas au WalkSpeed du jeu
-		Speed = 16,
-		Step = 4,
-	},
+	Walk = { Enabled = false, Speed = 16, Step = 4 },
 
-	Kills = {
-		Enabled = true,   -- notification quand tu tues quelqu'un avec le fling
-		Window = 6,       -- secondes max entre le contact du fling et la mort
-	},
+	Kills = { Enabled = true, Window = 6 },
 
-	View = {
-		Enabled = false,
-		Target = "",
-	},
+	View = { Enabled = false, Target = "" },
 
-	Notify = {
-		Toggles = true,   -- notification à chaque activation / désactivation d'un bouton
-	},
+	Notify = { Toggles = true },
 
+	Swim = { Enabled = false, Speed = 60, Step = 10 },
 
-	Swim = {
-		Enabled = false, -- false = on ne touche pas à la nage du jeu
-		Speed = 60,      -- vitesse de nage (aucune limite)
-		Step = 10,
-	},
-
-	Jump = {
-		Enabled = false, -- false = on ne touche pas au saut du jeu
-		Power = 50,   -- valeur par défaut de Roblox
-		Step = 10,
-		Min = 0,
-		Max = 500,    -- max du SLIDER seulement (la case texte et les touches n'ont aucune limite)
-	},
+	Jump = { Enabled = false, Power = 50, Step = 10, Min = 0, Max = 500 },
 
 	FastMod = {
 		Enabled = true,
-		Delay = 0.01,              -- valeur max des délais/cooldowns/reload (secondes)
-		RateValue = 100,           -- valeur min des valeurs "plus haut = plus rapide"
-		ForceToolEnabled = true,   -- annule les cooldowns faits avec Tool.Enabled = false
-		PatchBackpack = true,      -- applique aussi aux armes dans le sac
-		RefreshInterval = 0.25,    -- réapplique toutes les X secondes (au cas où le jeu remet les valeurs)
-		AutoFire = false,          -- maintenir le clic gauche = tir auto
-		AutoFireDelay = 0.05,      -- délai entre 2 tirs auto (secondes)
-		PatchModules = true,       -- modifie aussi les réglages dans les ModuleScripts de l'arme
-		Watch = true,              -- si le jeu remet une valeur, elle est re-patchée instantanément
-		AnimBoost = false,         -- animations d'attaque plus rapides (arme en main)
-		AnimSpeed = 2,             -- vitesse des animations (x)
-		-- mots-clés (minuscules) : valeur BASSE = plus rapide
+		Delay = 0.01,
+		RateValue = 100,
+		ForceToolEnabled = true,
+		PatchBackpack = true,
+		RefreshInterval = 0.25,
+		AutoFire = false,
+		AutoFireDelay = 0.05,
+		PatchModules = true,
+		Watch = true,
+		AnimBoost = false,
+		AnimSpeed = 2,
 		DelayKeywords = { "cooldown", "cool_down", "delay", "reload", "firerate", "fire_rate", "firedelay", "shootdelay", "attackdelay", "interval", "wait", "recoiltime", "debounce", "equiptime", "windup", "chargetime" },
-		-- mots-clés (minuscules) : valeur HAUTE = plus rapide
 		RateKeywords = { "rpm", "persecond", "attackspeed", "firespeed", "rateoffire", "shotspersecond" },
 	},
 
@@ -144,35 +102,34 @@ local Config = {
 		Prediction = true,
 		PredictionFactor = 0.12,
 		MaxDistance = math.huge,
-		HoldToAim = false,       -- true = ne vise que clic droit maintenu
+		HoldToAim = false,
+		AimMode = "Camera",
 	},
 
 	Camlock = {
 		Enabled = false,
 		TargetPart = "Head",
-		Smoothness = 1,          -- 1 = verrouillage total, plus bas = plus doux
+		Smoothness = 1,
 		Prediction = true,
 		PredictionFactor = 0.12,
 		WallCheck = false,
 		TeamCheck = true,
-		Sticky = true,           -- garde la même cible jusqu'à sa mort (sinon : la plus proche du centre)
-		FOV = 100000,            -- distance max à l'écran (pixels) pour choisir la cible
+		Sticky = true,
+		FOV = 100000,
 		MaxDistance = math.huge,
 	},
 
 	RapidFire = {
 		Enabled = false,
-		Rate = 30,               -- tirs par seconde (aucune limite)
+		Rate = 30,
 		Step = 10,
-		HoldOnly = true,         -- ne tire que quand tu maintiens le clic gauche
-		ForceEnabled = true,     -- remet Tool.Enabled = true (cooldowns faits avec Enabled = false)
-		Deactivate = true,       -- Activate() puis Deactivate() à chaque tir
+		HoldOnly = true,
+		ForceEnabled = true,
+		Deactivate = true,
 		MaxPerFrame = 60,
 	},
 
-	Wallbang = {
-		Enabled = false,
-	},
+	Wallbang = { Enabled = false },
 
 	SilentAim = {
 		Enabled = false,
@@ -202,51 +159,47 @@ local Config = {
 		Enabled = false,
 		Color = Color3.fromRGB(235, 55, 35),
 		Thickness = 2,
+		ShowDot = true,
+		FadeEnd = true,
+		FromCenter = true,
 	},
 
-	FOVCircle = {
-		Show = true,
-		Color = Color3.new(1, 1, 1),
-		Thickness = 1.5,
-	},
+	FOVCircle = { Show = true, Color = Color3.new(1, 1, 1), Thickness = 1.5 },
 
-	NextbotSpam = {
-		Active = false,
-		Speed = 20,
-	},
+	NextbotSpam = { Active = false, Speed = 20 },
 
 	WalkFling = {
 		Enabled = false,
-		Power = 5000,     -- puissance actuelle (aucune limite max)
-		Min = 100,        -- minimum du SLIDER seulement
-		Max = 50000,      -- maximum du SLIDER seulement (la case texte et les touches n'ont aucune limite)
-		Step = 1000,      -- pas des touches , et .
-		Spin = true,      -- fait tourner le perso (plus efficace)
-		HeavyBody = true, -- rend le perso très lourd pendant le fling
-		OnlyNearPlayers = true,   -- ne fling que si un joueur est proche
-		TriggerRange = 7,         -- distance de déclenchement (studs)
-		SafeReturn = true,        -- revient à la dernière position sûre si tu es projeté trop loin
-		SafeReturnDistance = 300, -- distance max avant le retour auto
+		Power = 5000,
+		Min = 100,
+		Max = 50000,
+		Step = 1000,
+		Spin = true,
+		HeavyBody = true,
+		OnlyNearPlayers = true,
+		TriggerRange = 7,
+		SafeReturn = true,
+		SafeReturnDistance = 300,
 	},
 
 	TP = {
-		ClickTP = false,                 -- maintenir HoldKey + clic gauche = téléportation
+		ClickTP = false,
 		HoldKey = Enum.KeyCode.LeftShift,
-		MoveVehicle = true,              -- si assis, téléporte aussi le véhicule
-		Height = 3,                      -- hauteur ajoutée à l'arrivée
+		MoveVehicle = true,
+		Height = 3,
 	},
 
 	BTools = {
 		Enabled = false,
 		Tool = "Move",
-		IgnorePlayers = true,   -- ne cible pas les joueurs/PNJ
-		ShowHover = true,       -- surbrillance de l'objet visé
-		FreeDrag = true,        -- outil Déplacer : glisser l'objet directement
-		LocalAxes = false,      -- poignées sur les axes de l'objet
-		MoveStep = 1,           -- pas de déplacement (studs, 0 = libre)
+		IgnorePlayers = true,
+		ShowHover = true,
+		FreeDrag = true,
+		LocalAxes = false,
+		MoveStep = 1,
 		ResizeStep = 1,
-		RotateStep = 15,        -- degrés
-		ResizeBoth = false,     -- redimensionner des deux côtés
+		RotateStep = 15,
+		ResizeBoth = false,
 		SelRadius = 20,
 		Color = Color3.fromRGB(196, 40, 28),
 		Material = "Plastic",
@@ -277,25 +230,24 @@ local Config = {
 		NewCollide = true,
 	},
 
-	InfJump = {
-		Enabled = false,
-	},
+	InfJump = { Enabled = false },
 
 	Menu = {
 		Name = "telavivmenu",
 		Title = "Tel Aviv Menu",
 		Accent = Color3.fromRGB(235, 55, 35),
-		Blur = false,           -- flou d'arrière-plan quand le panel est ouvert
+		Blur = false,
 		BlurSize = 20,
-		Dim = 0,             -- assombrissement derrière le panel (0 à 1)
+		Dim = 0,
 		Animations = true,
-		AnimBorder = false,     -- bordure animée
+		AnimBorder = false,
 		Width = 1140,
 		Height = 746,
 		DefaultWidth = 1140,
 		DefaultHeight = 746,
-		StartPosition = UDim2.new(0.5, 0, 0.5, 0), -- centré
-	},}
+		StartPosition = UDim2.new(0.5, 0, 0.5, 0),
+	},
+}
 
 ----------------------------------------------------------------------
 -- Utilitaires
@@ -305,7 +257,7 @@ local function refreshUI()
 	for _, f in ipairs(refreshers) do f() end
 end
 
-local Notify = function() end -- remplacé par le GUI (U.notify)
+local Notify = function() end
 
 local function keyIn(list, key)
 	for _, k in ipairs(list) do
@@ -322,8 +274,20 @@ local function getChar()
 	if hum and root then return char, hum, root end
 end
 
+-- Keybind listener state
+local listeningBind = nil
+local refreshKeyLabels = {}
+local function setKeybind(cat, idx, keyCode)
+	local list = Config.Keys[cat]
+	if list and list[idx] then
+		list[idx] = keyCode
+		for _, f in ipairs(refreshKeyLabels) do f() end
+		if Notify then Notify("Touche changée : " .. keyCode.Name) end
+	end
+end
+
 ----------------------------------------------------------------------
--- Système de Nextbots Local (Spam Nextbot)
+-- Système de Nextbots Local
 ----------------------------------------------------------------------
 local spawnedNextbots = {}
 
@@ -335,7 +299,6 @@ local function spawnLocalNextbot()
 	nextbot.Name = "LocalNextbot"
 	nextbot.Size = Vector3.new(4, 5, 2)
 
-	-- Apparition aléatoire autour du joueur
 	local angle = math.random() * math.pi * 2
 	local distance = math.random(15, 30)
 	nextbot.Position = root.Position + Vector3.new(math.cos(angle) * distance, 3, math.sin(angle) * distance)
@@ -346,7 +309,6 @@ local function spawnLocalNextbot()
 	nextbot.Material = Enum.Material.Neon
 	nextbot.Parent = workspace
 
-	-- Suivi en temps réel via RenderStepped
 	local connection
 	connection = RunService.RenderStepped:Connect(function(dt)
 		local _, _, currentRoot = getChar()
@@ -355,15 +317,11 @@ local function spawnLocalNextbot()
 			connection:Disconnect()
 			return
 		end
-
 		local direction = (currentRoot.Position - nextbot.Position)
-		local distanceToPlayer = direction.Magnitude
-
-		if distanceToPlayer > 2 then
+		if direction.Magnitude > 2 then
 			nextbot.AssemblyLinearVelocity = direction.Unit * Config.NextbotSpam.Speed
 			nextbot.CFrame = CFrame.lookAt(nextbot.Position, currentRoot.Position)
 		else
-			-- Effet "Jumpscare" si le Nextbot touche le joueur
 			nextbot:Destroy()
 			connection:Disconnect()
 		end
@@ -377,14 +335,14 @@ local function spawnLocalNextbot()
 end
 
 ----------------------------------------------------------------------
--- Fast Mod v2 (cooldown / cadence / reload / tir auto / modules de réglages / animations)
+-- Fast Mod
 ----------------------------------------------------------------------
-local menuFrameRef = nil -- rempli plus bas par le GUI
+local menuFrameRef = nil
 local fastPatchAll, restoreFastMod, addFastKeyword
 do
-local originals = setmetatable({}, { __mode = "k" })      -- [instance ou table] = { [clé] = valeur d'origine }
-local watchConns = setmetatable({}, { __mode = "k" })     -- [instance] = { [clé] = connexion }
-local patchedModules = setmetatable({}, { __mode = "k" }) -- [ModuleScript] = table requise (ou false)
+local originals = setmetatable({}, { __mode = "k" })
+local watchConns = setmetatable({}, { __mode = "k" })
+local patchedModules = setmetatable({}, { __mode = "k" })
 local hookedTools = setmetatable({}, { __mode = "k" })
 
 local function nameMatches(name, list)
@@ -401,7 +359,6 @@ local function remember(obj, key, value)
 	if t[key] == nil then t[key] = value end
 end
 
--- renvoie la nouvelle valeur, ou nil si rien à changer
 local function patchedNumber(name, val)
 	local fm = Config.FastMod
 	if nameMatches(name, fm.DelayKeywords) then
@@ -423,7 +380,6 @@ local function hasConn(inst, key)
 	return c and c[key] ~= nil
 end
 
--- NumberValue / IntValue
 local function patchValue(inst)
 	local fm = Config.FastMod
 	local nv = patchedNumber(inst.Name, inst.Value)
@@ -444,7 +400,6 @@ local function patchValue(inst)
 	end
 end
 
--- Attributes numériques
 local function patchAttributes(inst)
 	local fm = Config.FastMod
 	for name, val in pairs(inst:GetAttributes()) do
@@ -473,7 +428,6 @@ local function patchAttributes(inst)
 	end
 end
 
--- Tables de réglages dans les ModuleScripts de l'arme (ex: { Cooldown = 1.5, FireRate = 0.2 })
 local function patchTable(tbl, depth)
 	if depth > 3 then return end
 	for k, v in pairs(tbl) do
@@ -523,7 +477,6 @@ local function patchTool(tool)
 	end
 end
 
--- patch immédiat de tout ce qui est ajouté plus tard dans l'arme
 local function hookTool(tool)
 	if hookedTools[tool] then return end
 	hookedTools[tool] = true
@@ -548,7 +501,6 @@ function fastPatchAll()
 end
 
 function restoreFastMod()
-	-- on coupe la surveillance d'abord pour ne pas re-patcher pendant la restauration
 	for _, conns in pairs(watchConns) do
 		for _, c in pairs(conns) do c:Disconnect() end
 	end
@@ -572,7 +524,6 @@ function restoreFastMod()
 	table.clear(originals)
 end
 
--- ajoute un mot-clé (minuscules) à une liste, renvoie true si ajouté
 function addFastKeyword(list, text)
 	text = (text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
 	if text == "" or table.find(list, text) then return false end
@@ -580,7 +531,6 @@ function addFastKeyword(list, text)
 	return true
 end
 
--- animations d'attaque plus rapides (uniquement avec une arme en main)
 local function boostAnimations(char)
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	local animator = hum and hum:FindFirstChildOfClass("Animator")
@@ -614,7 +564,6 @@ RunService.Heartbeat:Connect(function(dt)
 	end
 end)
 
--- Tir auto : maintenir le clic gauche
 local autoTimer = 0
 RunService.Heartbeat:Connect(function(dt)
 	local fm = Config.FastMod
@@ -622,7 +571,6 @@ RunService.Heartbeat:Connect(function(dt)
 	if not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then autoTimer = 0; return end
 	if UIS:GetFocusedTextBox() then return end
 
-	-- pas de tir quand on clique dans le menu
 	if menuFrameRef and menuFrameRef.Visible then
 		local m = UIS:GetMouseLocation()
 		local p, sz = menuFrameRef.AbsolutePosition, menuFrameRef.AbsoluteSize
@@ -648,7 +596,6 @@ local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 rayParams.IgnoreWater = true
 
--- la souris est-elle au-dessus du panel ? (on ne tire / ne vise pas quand on clique dans le menu)
 local function mouseOverMenu()
 	if not (menuFrameRef and menuFrameRef.Visible) then return false end
 	local m = UIS:GetMouseLocation()
@@ -656,9 +603,8 @@ local function mouseOverMenu()
 	return m.X >= p.X and m.X <= p.X + sz.X and m.Y >= p.Y and m.Y <= p.Y + sz.Y
 end
 
--- visible = aucun mur solide entre la caméra et la cible (ignore les parts invisibles / non solides)
 local function isVisible(part)
-	if Config.Wallbang.Enabled then return true end -- wallbang : les murs ne bloquent plus la visée
+	if Config.Wallbang.Enabled then return true end
 	local origin = camera.CFrame.Position
 	local dir = part.Position - origin
 	local ignore = { player.Character }
@@ -677,7 +623,6 @@ local function isVisible(part)
 	return false
 end
 
--- centre du FOV : centre de l'écran, ou la souris quand le curseur est libre (useMouse)
 local function aimCenter(useMouse)
 	if useMouse and UIS.MouseBehavior ~= Enum.MouseBehavior.LockCenter then
 		return UIS:GetMouseLocation()
@@ -685,7 +630,6 @@ local function aimCenter(useMouse)
 	return camera.ViewportSize / 2
 end
 
--- R6 et R15 : "Torso" = UpperTorso (R15) ou Torso (R6) ; "HumanoidRootPart" = centre du perso
 local function resolveAimPart(char, partName)
 	partName = partName or "Head"
 	local part
@@ -697,7 +641,6 @@ local function resolveAimPart(char, partName)
 	return part or char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Head")
 end
 
--- Renvoie (position écran, position monde, part, joueur) de la cible la plus proche du centre du FOV
 local function getClosestTarget(s, partName, useMouse)
 	local center = aimCenter(useMouse)
 	local camPos = camera.CFrame.Position
@@ -726,7 +669,6 @@ local function getClosestTarget(s, partName, useMouse)
 
 		local v = Vector2.new(sp.X, sp.Y)
 		local d = (v - center).Magnitude
-		-- on teste le FOV AVANT le raycast (beaucoup plus léger)
 		if d < bestDist and (not s.WallCheck or isVisible(part)) then
 			bestScreen, bestWorld, bestPart, bestPlr, bestDist = v, pos3D, part, other, d
 		end
@@ -735,14 +677,14 @@ local function getClosestTarget(s, partName, useMouse)
 end
 
 ----------------------------------------------------------------------
--- Cercle FOV (suit le FOV de l'Aimbot, ou du Silent Aim si l'Aimbot est coupé)
+-- Cercle FOV + AimTracer
 ----------------------------------------------------------------------
 do
 local fovGui = Instance.new("ScreenGui")
 fovGui.Name = "telavivfov"
 fovGui.ResetOnSpawn = false
 fovGui.IgnoreGuiInset = true
-fovGui.DisplayOrder = 49 -- sous le menu (50)
+fovGui.DisplayOrder = 49
 fovGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local fovCircle = Instance.new("Frame")
@@ -769,6 +711,14 @@ task.spawn(function()
 	fovGui.Parent = pg
 end)
 
+-- AimTracer holder (avec dégradé + point)
+local tracerHolder = Instance.new("Frame")
+tracerHolder.Name = "AimTracerHolder"
+tracerHolder.BackgroundTransparency = 1
+tracerHolder.Size = UDim2.fromScale(1, 1)
+tracerHolder.ZIndex = 5
+tracerHolder.Parent = fovGui
+
 local aimTracerLine = Instance.new("Frame")
 aimTracerLine.Name = "AimTracer"
 aimTracerLine.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -777,27 +727,63 @@ aimTracerLine.BackgroundColor3 = Config.AimTracer.Color
 aimTracerLine.Size = UDim2.fromOffset(2, 2)
 aimTracerLine.Visible = false
 aimTracerLine.ZIndex = 5
-aimTracerLine.Parent = fovGui
+aimTracerLine.Parent = tracerHolder
+local tracerGradient = Instance.new("UIGradient")
+tracerGradient.Rotation = 0
+tracerGradient.Parent = aimTracerLine
+
+local aimDot = Instance.new("Frame")
+aimDot.AnchorPoint = Vector2.new(0.5, 0.5)
+aimDot.Size = UDim2.fromOffset(8, 8)
+aimDot.BackgroundColor3 = Config.AimTracer.Color
+aimDot.BorderSizePixel = 0
+aimDot.Visible = false
+aimDot.ZIndex = 6
+aimDot.Parent = tracerHolder
+local dotCorner = Instance.new("UICorner")
+dotCorner.CornerRadius = UDim.new(1, 0)
+dotCorner.Parent = aimDot
+local dotStroke = Instance.new("UIStroke")
+dotStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+dotStroke.Color = Color3.new(1, 1, 1)
+dotStroke.Thickness = 1
+dotStroke.Parent = aimDot
 
 RunService.RenderStepped:Connect(function()
 	local cfg = Config.AimTracer
 	if not cfg.Enabled then
 		aimTracerLine.Visible = false
+		aimDot.Visible = false
 		return
 	end
 	local screenPos = getClosestTarget(Config.Aimbot, Config.Aimbot.TargetPart, false)
 	if not screenPos then
 		aimTracerLine.Visible = false
+		aimDot.Visible = false
 		return
 	end
 	local vp = camera.ViewportSize
-	local origin = Vector2.new(vp.X * 0.5, vp.Y - 28)
+	local origin = cfg.FromCenter and Vector2.new(vp.X * 0.5, vp.Y * 0.5) or Vector2.new(vp.X * 0.5, vp.Y - 28)
 	local delta = screenPos - origin
-	aimTracerLine.Position = UDim2.fromOffset((origin.X + screenPos.X) * 0.5, (origin.Y + screenPos.Y) * 0.5)
+	local mid = (origin + screenPos) / 2
+	aimTracerLine.Position = UDim2.fromOffset(mid.X, mid.Y)
 	aimTracerLine.Size = UDim2.fromOffset(delta.Magnitude, math.max(1, cfg.Thickness))
 	aimTracerLine.Rotation = math.deg(math.atan2(delta.Y, delta.X))
 	aimTracerLine.BackgroundColor3 = cfg.Color
+	if cfg.FadeEnd then
+		tracerGradient.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.new(1, 1, 1)),
+			ColorSequenceKeypoint.new(1, Color3.new(0.3, 0.3, 0.3)),
+		})
+		tracerGradient.Rotation = math.deg(math.atan2(delta.Y, delta.X))
+	else
+		tracerGradient.Color = ColorSequence.new(Color3.new(1, 1, 1))
+	end
 	aimTracerLine.Visible = true
+	aimDot.Position = UDim2.fromOffset(screenPos.X, screenPos.Y)
+	aimDot.BackgroundColor3 = cfg.Color
+	aimDot.Size = UDim2.fromOffset(8 + cfg.Thickness * 2, 8 + cfg.Thickness * 2)
+	aimDot.Visible = cfg.ShowDot
 end)
 
 RunService.RenderStepped:Connect(function()
@@ -823,13 +809,6 @@ end
 
 ----------------------------------------------------------------------
 -- Silent Aim
--- La cible est recalculée à chaque image (cache), puis servie :
---   1) via l'API _G.DevTools (à appeler depuis le script d'arme du jeu) :
---        local pos = _G.DevTools.GetAimPosition(mouse.Hit.Position)
---        local part = _G.DevTools.GetAimTarget()            -- Part visée (ou nil)
---        local dir = _G.DevTools.GetAimDirection(origin, defaultDir)
---   2) automatiquement sur mouse.Hit / mouse.Target si l'environnement
---      fournit hookmetamethod + checkcaller (executor) ; sinon ignoré sans erreur.
 ----------------------------------------------------------------------
 do
 local silentCache = { part = nil, pos = nil, plr = nil }
@@ -885,9 +864,7 @@ end)
 end
 
 ----------------------------------------------------------------------
--- Wallbang : les tirs (Raycast du jeu) traversent les murs.
--- Executor uniquement (hookmetamethod/checkcaller) ; sinon ignoré sans erreur.
--- Les raycasts du jeu ne touchent plus que les personnages des autres joueurs.
+-- Wallbang
 ----------------------------------------------------------------------
 do
 	local chars, nextBuild = {}, 0
@@ -968,7 +945,6 @@ local origWalk = nil
 local origJump = nil
 local origSwim = nil
 
--- Détection de l'eau (état Swimming OU voxel d'eau du Terrain autour du perso)
 local terrain = workspace.Terrain
 local waterT, waterCache = 0, false
 local function inWater(root, hum)
@@ -1001,13 +977,11 @@ RunService.RenderStepped:Connect(function()
 
 	local fly = Config.Fly
 
-	-- nouveau personnage (respawn) : on repart de zéro
 	if hum ~= lastHum then
 		lastHum = hum
 		origWalk, origJump, origSwim = nil, nil, nil
 	end
 
-	-- WalkSpeed : on ne touche à rien tant que "Walkspeed perso" est OFF
 	local walk = Config.Walk
 	if walk.Enabled and not fly.Enabled then
 		if origWalk == nil then origWalk = hum.WalkSpeed end
@@ -1017,7 +991,6 @@ RunService.RenderStepped:Connect(function()
 		origWalk = nil
 	end
 
-	-- JumpPower : idem
 	local jump = Config.Jump
 	if jump.Enabled then
 		if origJump == nil then origJump = { hum.UseJumpPower, hum.JumpPower } end
@@ -1029,7 +1002,6 @@ RunService.RenderStepped:Connect(function()
 		origJump = nil
 	end
 
-	-- Vitesse de nage : détection d'eau + vélocité (marche même avec ragdoll / états custom)
 	local swim = Config.Swim
 	local swimming = swim.Enabled and not fly.Enabled and inWater(root, hum)
 	if swimming then
@@ -1056,10 +1028,9 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ----------------------------------------------------------------------
--- Fly classique : BodyVelocity + BodyGyro
--- WASD = avancer selon la caméra, Espace = monter, Ctrl gauche = descendre
+-- Orbit
 ----------------------------------------------------------------------
-do -- Orbit : tourne autour d'un joueur
+do
 	local angle, target, nextPick = 0, nil, 0
 	local function valid(p)
 		local c = p and p.Parent and p.Character
@@ -1102,7 +1073,10 @@ do -- Orbit : tourne autour d'un joueur
 	end)
 end
 
-do -- Spin Bot : le personnage tourne sur lui-même (visible par les autres)
+----------------------------------------------------------------------
+-- Spin Bot
+----------------------------------------------------------------------
+do
 	local spinning = false
 	RunService.Heartbeat:Connect(function(dt)
 		local _, hum, root = getChar()
@@ -1121,12 +1095,16 @@ do -- Spin Bot : le personnage tourne sur lui-même (visible par les autres)
 	end)
 end
 
+----------------------------------------------------------------------
+-- Fly (nouveau : LinearVelocity + AlignOrientation)
+----------------------------------------------------------------------
 do
-	local bv, bg
+	local lv, alignOrient, attach
 
-	local function clear()
-		if bv then bv:Destroy() bv = nil end
-		if bg then bg:Destroy() bg = nil end
+	local function clearFly()
+		if lv then lv:Destroy() lv = nil end
+		if alignOrient then alignOrient:Destroy() alignOrient = nil end
+		if attach then attach:Destroy() attach = nil end
 		local _, hum = getChar()
 		if hum then
 			hum.PlatformStand = false
@@ -1138,25 +1116,34 @@ do
 		local fly = Config.Fly
 		local _, hum, root = getChar()
 		if not (fly.Enabled and hum and root and hum.Health > 0) then
-			if bv or bg then clear() end
+			if lv or alignOrient then clearFly() end
 			return
 		end
 
-		if not bv or bv.Parent ~= root then
-			if bv then bv:Destroy() end
-			bv = Instance.new("BodyVelocity")
-			bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-			bv.Velocity = Vector3.zero
-			bv.Parent = root
+		-- Attachment (une seule fois par root)
+		if not attach or attach.Parent ~= root then
+			if attach then attach:Destroy() end
+			attach = Instance.new("Attachment")
+			attach.Name = "TelAvivFlyAttachment"
+			attach.Parent = root
 		end
-		if not bg or bg.Parent ~= root then
-			if bg then bg:Destroy() end
-			bg = Instance.new("BodyGyro")
-			bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-			bg.P = 9e4
-			bg.D = 1e3
-			bg.CFrame = camera.CFrame
-			bg.Parent = root
+
+		if not lv or lv.Parent ~= root then
+			if lv then lv:Destroy() end
+			lv = Instance.new("LinearVelocity")
+			lv.Attachment0 = attach
+			lv.MaxForce = math.huge
+			lv.VectorVelocity = Vector3.zero
+			lv.Parent = root
+		end
+		if not alignOrient or alignOrient.Parent ~= root then
+			if alignOrient then alignOrient:Destroy() end
+			alignOrient = Instance.new("AlignOrientation")
+			alignOrient.Mode = Enum.OrientationAlignmentMode.OneAttachment
+			alignOrient.Attachment0 = attach
+			alignOrient.MaxTorque = math.huge
+			alignOrient.Responsiveness = 200
+			alignOrient.Parent = root
 		end
 
 		hum.PlatformStand = true
@@ -1171,13 +1158,20 @@ do
 			if UIS:IsKeyDown(fly.UpKey) then dir += Vector3.yAxis end
 			if UIS:IsKeyDown(fly.DownKey) then dir -= Vector3.yAxis end
 		end
-		bv.Velocity = dir.Magnitude > 0 and dir.Unit * math.max(fly.Speed, 0) or Vector3.zero
-		bg.CFrame = cf
+
+		if fly.Mode == "Camera" then
+			lv.VectorVelocity = dir.Magnitude > 0 and dir.Unit * math.max(fly.Speed, 0) or Vector3.zero
+			alignOrient.CFrame = cf
+		else
+			lv.VectorVelocity = dir.Magnitude > 0 and dir.Unit * math.max(fly.Speed, 0) or Vector3.zero
+			alignOrient.CFrame = CFrame.lookAt(Vector3.zero, dir.Magnitude > 0 and dir or cf.LookVector)
+		end
 	end)
 end
 
--- Aimbot : la caméra vise la cible (appliqué APRÈS le script caméra de Roblox)
--- Smoothness indépendante des FPS ; option "maintenir clic droit" ; pas d'aim pendant la saisie / dans le menu
+----------------------------------------------------------------------
+-- Aimbot (mode Camera / Cursor)
+----------------------------------------------------------------------
 pcall(function() RunService:UnbindFromRenderStep("TelAvivAimbot") end)
 RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 1, function(dt)
 	local a = Config.Aimbot
@@ -1185,8 +1179,35 @@ RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 
 	if UIS:GetFocusedTextBox() then return end
 	if a.HoldToAim and not UIS:IsMouseButtonPressed(Enum.UserInputType.MouseButton2) then return end
 	if mouseOverMenu() then return end
-	local _, world = getClosestTarget(a, a.TargetPart, false)
-	if world then
+
+	local screenPos, world = getClosestTarget(a, a.TargetPart, false)
+	if not world then return end
+
+	if a.AimMode == "Cursor" then
+		-- Mode curseur : on tente de déplacer le curseur (executor) sinon on pivote la caméra
+		if screenPos and UIS.MouseBehavior == Enum.MouseBehavior.LockCenter then
+			-- Curseur verrouillé : simule via la caméra mais plus fin
+			local camPos = camera.CFrame.Position
+			local s = math.clamp(a.Smoothness, 0.01, 1)
+			local alpha = s >= 1 and 1 or 1 - (1 - s) ^ (math.min(dt, 0.1) * 60)
+			camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camPos, world), alpha)
+		else
+			-- Curseur libre : mousemoverel si dispo (executor)
+			if typeof(mousemoverel) == "function" then
+				local vp = camera.ViewportSize
+				local dx = screenPos.X - vp.X / 2
+				local dy = screenPos.Y - vp.Y / 2
+				local k = math.clamp(a.Smoothness, 0.01, 1)
+				pcall(mousemoverel, dx * k, dy * k)
+			else
+				-- Fallback : pivot caméra
+				local camPos = camera.CFrame.Position
+				local s = math.clamp(a.Smoothness, 0.01, 1)
+				local alpha = s >= 1 and 1 or 1 - (1 - s) ^ (math.min(dt, 0.1) * 60)
+				camera.CFrame = camera.CFrame:Lerp(CFrame.lookAt(camPos, world), alpha)
+			end
+		end
+	else
 		local camPos = camera.CFrame.Position
 		local s = math.clamp(a.Smoothness, 0.01, 1)
 		local alpha = s >= 1 and 1 or 1 - (1 - s) ^ (math.min(dt, 0.1) * 60)
@@ -1195,7 +1216,7 @@ RunService:BindToRenderStep("TelAvivAimbot", Enum.RenderPriority.Camera.Value + 
 end)
 
 ----------------------------------------------------------------------
--- Camlock : verrouille la caméra sur un joueur
+-- Camlock
 ----------------------------------------------------------------------
 local camTarget = nil
 local camState = {}
@@ -1252,7 +1273,7 @@ RunService:BindToRenderStep("TelAvivCamlock", Enum.RenderPriority.Camera.Value +
 end)
 
 ----------------------------------------------------------------------
--- Rapid Fire : tirs répétés très rapides avec l'arme en main
+-- Rapid Fire (persistant)
 ----------------------------------------------------------------------
 do
 	local acc = 0
@@ -1266,13 +1287,11 @@ do
 		local tool = char and char:FindFirstChildOfClass("Tool")
 		if not tool then acc = 0 return end
 		acc += dt * math.max(r.Rate, 0)
-		local n = math.min(math.floor(acc), r.MaxPerFrame) -- max par image (évite de figer le client)
+		local n = math.min(math.floor(acc), r.MaxPerFrame)
 		acc -= math.floor(acc)
 		for _ = 1, n do
-			-- les armes qui font Tool.Enabled = false pour leur cooldown bloqueraient Activate()
 			if r.ForceEnabled and not tool.Enabled then tool.Enabled = true end
 			tool:Activate()
-			-- Deactivate : sans lui, les armes à boucle "tant que activée" empilent des boucles
 			if r.Deactivate then tool:Deactivate() end
 		end
 	end)
@@ -1372,7 +1391,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ----------------------------------------------------------------------
--- Walk Fling (touche un joueur en marchant pour l'éjecter)
+-- Walk Fling
 ----------------------------------------------------------------------
 local flingVel = Vector3.zero
 local flingAng = Vector3.zero
@@ -1382,7 +1401,6 @@ local flingMassOn = false
 local flingChar = nil
 local lastSafeCF = nil
 
--- Perso très lourd (densité max) pendant le fling, restauré ensuite
 local function setFlingMass(on)
 	if on then
 		local char = player.Character
@@ -1410,7 +1428,6 @@ local function setFlingMass(on)
 	end
 end
 
--- Y a-t-il un autre joueur dans la portée ?
 local function nearOtherPlayer(root, range)
 	for _, other in ipairs(Players:GetPlayers()) do
 		if other ~= player then
@@ -1439,7 +1456,6 @@ RunService.Heartbeat:Connect(function()
 		setFlingMass(true)
 	end
 
-	-- retour auto si tu as été projeté trop loin
 	if wf.SafeReturn and lastSafeCF
 		and (root.Position - lastSafeCF.Position).Magnitude > wf.SafeReturnDistance then
 		char:PivotTo(lastSafeCF)
@@ -1448,7 +1464,6 @@ RunService.Heartbeat:Connect(function()
 		return
 	end
 
-	-- pas de joueur proche : comportement normal
 	if wf.OnlyNearPlayers and not nearOtherPlayer(root, wf.TriggerRange) then
 		if wf.SafeReturn then lastSafeCF = root.CFrame end
 		return
@@ -1457,7 +1472,6 @@ RunService.Heartbeat:Connect(function()
 	flingVel = root.AssemblyLinearVelocity
 	flingAng = root.AssemblyAngularVelocity
 
-	-- si le perso est immobile, on pousse quand même vers l'avant
 	local base = flingVel
 	if Vector3.new(base.X, 0, base.Z).Magnitude < 1 then
 		base = root.CFrame.LookVector * 16
@@ -1490,10 +1504,10 @@ RunService.Stepped:Connect(function()
 end)
 
 ----------------------------------------------------------------------
--- Notifications de kill (fling uniquement, aucun tag)
+-- Notifications de kill
 ----------------------------------------------------------------------
 local killCount = 0
-local lastNear = {} -- [Player] = dernier moment où il était à portée de ton walk fling
+local lastNear = {}
 
 RunService.Heartbeat:Connect(function()
 	if not (Config.WalkFling.Enabled and Config.Kills.Enabled) then return end
@@ -1537,7 +1551,7 @@ for _, p in ipairs(Players:GetPlayers()) do hookKills(p) end
 Players.PlayerRemoving:Connect(function(p) lastNear[p] = nil end)
 
 ----------------------------------------------------------------------
--- Téléportation (TP joueur, click TP, sauvegarde de position, spawn)
+-- Téléportation
 ----------------------------------------------------------------------
 local savedPos = nil
 local tpIndex = 0
@@ -1549,7 +1563,6 @@ local function teleportTo(pos, height)
 
 	local seat = hum.SeatPart
 	if seat and Config.TP.MoveVehicle then
-		-- assis : on déplace tout le véhicule
 		local base = seat.AssemblyRootPart or seat
 		base.CFrame = base.CFrame + (targetPos - root.Position)
 		base.AssemblyLinearVelocity = Vector3.zero
@@ -1627,7 +1640,6 @@ local function tpSpawn()
 	if sp then teleportTo(sp.Position, sp.Size.Y / 2 + 3) end
 end
 
--- Infinite Jump
 UIS.JumpRequest:Connect(function()
 	if not Config.InfJump.Enabled then return end
 	local _, hum = getChar()
@@ -1635,7 +1647,7 @@ UIS.JumpRequest:Connect(function()
 end)
 
 ----------------------------------------------------------------------
--- View player (la caméra suit un autre joueur)
+-- View player
 ----------------------------------------------------------------------
 local viewIndex = 0
 
@@ -1675,7 +1687,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ----------------------------------------------------------------------
--- Actions (AUCUNE limite haute : vitesse, saut, fling, fly)
+-- Actions
 ----------------------------------------------------------------------
 local function setFly(v) Config.Fly.Enabled = v; refreshUI() end
 local function setNoclip(v) Config.Noclip.Enabled = v; refreshUI() end
@@ -1700,7 +1712,7 @@ end
 local function setClickTP(v) Config.TP.ClickTP = v; refreshUI() end
 local function setInfJump(v) Config.InfJump.Enabled = v; refreshUI() end
 local function setFlingPower(v)
-	Config.WalkFling.Power = math.max(math.floor(v), 0) -- aucune limite haute
+	Config.WalkFling.Power = math.max(math.floor(v), 0)
 	refreshUI()
 end
 local function addFlingPower(d) setFlingPower(Config.WalkFling.Power + d) end
@@ -1712,14 +1724,25 @@ local function setFastMod(v)
 end
 local function setAutoFire(v) Config.FastMod.AutoFire = v; refreshUI() end
 local function setCamlock(v) Config.Camlock.Enabled = v; if v then camState.lockNearest() end; refreshUI() end
-local function setRapidFire(v) Config.RapidFire.Enabled = v; refreshUI() end
+
+local function setRapidFire(v)
+	Config.RapidFire.Enabled = v and true or false
+	if not Config.RapidFire.Enabled then
+		Config.FastMod.AutoFire = false
+	end
+	refreshUI()
+	if Notify then
+		Notify("Rapid Fire : " .. (Config.RapidFire.Enabled and "ON" or "OFF"))
+	end
+end
+
 local function setFastDelayMs(ms)
 	Config.FastMod.Delay = math.floor(ms) / 1000
 	refreshUI()
 end
 
 local function setJumpPower(v)
-	Config.Jump.Power = math.max(math.floor(v), 0) -- aucune limite haute
+	Config.Jump.Power = math.max(math.floor(v), 0)
 	Config.Jump.Enabled = true
 	refreshUI()
 end
@@ -1730,10 +1753,10 @@ local function setOrbitSpeed(v) Config.Orbit.Speed = v; refreshUI() end
 local function setOrbitRadius(v) Config.Orbit.Radius = math.max(v, 0); refreshUI() end
 local function setSpinBot(v) Config.SpinBot.Enabled = v; refreshUI() end
 local function setSpinSpeed(v) Config.SpinBot.Speed = math.max(v, 0); refreshUI() end
-local function setFlySpeed(v) Config.Fly.Speed = math.max(v, 0); refreshUI() end -- aucune limite haute
+local function setFlySpeed(v) Config.Fly.Speed = math.max(v, 0); refreshUI() end
 local function addFlySpeed(d) setFlySpeed(Config.Fly.Speed + d) end
 local function setWalkSpeed(v)
-	Config.Walk.Speed = math.max(v, 0) -- aucune limite haute
+	Config.Walk.Speed = math.max(v, 0)
 	Config.Walk.Enabled = true
 	refreshUI()
 end
@@ -1751,13 +1774,13 @@ local function setWalkEnabled(v) Config.Walk.Enabled = v; refreshUI() end
 local function setJumpEnabled(v) Config.Jump.Enabled = v; refreshUI() end
 
 ----------------------------------------------------------------------
--- GUI "telavivmenu" v3 : interface à onglets + BTools
+-- GUI
 ----------------------------------------------------------------------
-local U = {}     -- partage entre les blocs GUI
-local BTf = {}   -- fonctions BTools (remplies plus bas)
+local U = {}
+local BTf = {}
 
 ----------------------------------------------------------------------
--- BLOC 1 : interface v6 (panel dashboard : cartes, flou, animations, recherche globale)
+-- BLOC 1 : interface
 ----------------------------------------------------------------------
 do
 	local M = Config.Menu
@@ -1780,9 +1803,6 @@ do
 	}
 	U.T = T
 
-	----------------------------------------------------------------
-	-- Helpers
-	----------------------------------------------------------------
 	local function dur(t) return M.Animations and t or 0 end
 
 	local function tw(inst, props, t, style, dir)
@@ -1856,7 +1876,6 @@ do
 	U.gui = gui
 	U.corner, U.stroke, U.tw, U.newLabel = corner, stroke, tw, newLabel
 
-	-- change la couleur d'accent partout (menu + panneau BTools)
 	local colorProps = { "BackgroundColor3", "TextColor3", "ImageColor3", "ScrollBarImageColor3", "Color", "Color3", "SurfaceColor3" }
 	local function nearColor(a, b)
 		return math.abs(a.R - b.R) + math.abs(a.G - b.G) + math.abs(a.B - b.B) < 0.01
@@ -1879,9 +1898,6 @@ do
 		refreshUI()
 	end
 
-	----------------------------------------------------------------
-	-- Fond : assombrissement + flou
-	----------------------------------------------------------------
 	local dim = Instance.new("Frame")
 	dim.Name = "Dim"
 	dim.Size = UDim2.new(1, 0, 1, 0)
@@ -1896,9 +1912,6 @@ do
 	blur.Size = 0
 	blur.Parent = Lighting
 
-	----------------------------------------------------------------
-	-- Fenêtre principale
-	----------------------------------------------------------------
 	local N = { navs = {}, navOrder = {}, cards = {}, nav = "Home", y = 14, open = true, minimized = false, compact = false }
 	local V = {}
 	local HEAD_H = 0
@@ -1930,7 +1943,6 @@ do
 		bg.Rotation = 90
 		bg.Parent = main
 
-		-- bordure animée
 		local ms = Instance.new("UIStroke")
 		ms.Color = Color3.new(1, 1, 1)
 		ms.Thickness = 1
@@ -1943,7 +1955,6 @@ do
 		end)
 	end
 
-	-- ripple (onde au clic) : l'hôte doit avoir ClipsDescendants = true
 	local function ripple(host)
 		local m = UIS:GetMouseLocation()
 		local abs, s = host.AbsolutePosition, scale.Scale
@@ -1964,7 +1975,7 @@ do
 	end
 
 	----------------------------------------------------------------
-	-- Notifications (toasts animés)
+	-- Notifications
 	----------------------------------------------------------------
 	do
 		local holder = Instance.new("Frame")
@@ -2039,7 +2050,7 @@ do
 	Notify = U.notify
 
 	----------------------------------------------------------------
-	-- Barre du haut
+	-- Header
 	----------------------------------------------------------------
 	local header = Instance.new("Frame")
 	header.Name = "Header"
@@ -2061,7 +2072,6 @@ do
 		line.ZIndex = 6
 		line.Parent = header
 
-		-- reflet qui traverse la barre
 		local shim = Instance.new("Frame")
 		shim.Position = UDim2.new(0, 0, 1, -2)
 		shim.Size = UDim2.new(1, 0, 0, 2)
@@ -2087,7 +2097,6 @@ do
 			shim.Visible = v
 		end
 
-		-- logo
 		local logo = Instance.new("Frame")
 		logo.Position = UDim2.new(0, 16, 0.5, -19)
 		logo.Size = UDim2.new(0, 38, 0, 38)
@@ -2125,7 +2134,7 @@ do
 		ver.Font = Enum.Font.GothamMedium
 		ver.TextSize = 11
 		ver.TextColor3 = T.Text
-		ver.Text = "v5"
+		ver.Text = "v6"
 		ver.ZIndex = 6
 		ver.Parent = header
 		corner(ver, 9)
@@ -2136,7 +2145,6 @@ do
 		V.sub = sub
 	end
 
-	-- boutons de fenêtre
 	do
 		local function winBtn(text, xOff, hoverColor)
 			local b = Instance.new("TextButton")
@@ -2166,7 +2174,6 @@ do
 		V.miniBtn = winBtn("—", -52, T.CardHover)
 	end
 
-	-- pastilles d'état : FPS, ping, joueurs
 	do
 		local chips = Instance.new("Frame")
 		chips.Name = "Chips"
@@ -2240,7 +2247,6 @@ do
 		end)
 	end
 
-	-- déplacement de la fenêtre par la barre
 	do
 		local dragging, dStart, dPos = false, nil, nil
 		header.InputBegan:Connect(function(i)
@@ -2265,7 +2271,7 @@ do
 	end
 
 	----------------------------------------------------------------
-	-- Corps : barre latérale + zone des cartes
+	-- Body
 	----------------------------------------------------------------
 	local body = Instance.new("Frame")
 	body.Name = "Body"
@@ -2288,7 +2294,7 @@ do
 	local NAV = {
 		{ "Home", "" }, { "Movement", "" }, { "Combat", "" }, { "Visuals", "" },
 		{ "Troll", "" }, { "Player", "" }, { "Teleport", "" }, { "Settings", "" },
-		{ "BTools", "" }, { "Misc", "" },
+		{ "BTools", "" }, { "Keybinds", "" }, { "Misc", "" },
 	}
 
 	do
@@ -2310,7 +2316,6 @@ do
 		nav.Parent = sidebar
 		V.nav = nav
 
-		-- pastille pleine qui glisse sous l'onglet actif
 		local pill = Instance.new("Frame")
 		pill.Name = "Pill"
 		pill.Position = UDim2.new(0, 7, 0, 0)
@@ -2327,9 +2332,9 @@ do
 		local navLabels = {
 			Home = "Aimbot", Movement = "Trigger", Combat = "Silent Aim", Visuals = "Visuals",
 			Troll = "Rage", Player = "Player", Teleport = "Local Players", Settings = "Settings",
-			BTools = "Config", Misc = "Dex",
+			BTools = "Config", Keybinds = "Keybinds", Misc = "Dex",
 		}
-		local navY = { 0, 44, 104, 148, 211, 255, 316, 362, 420, 464 }
+		local navY = { 0, 44, 104, 148, 211, 255, 316, 362, 420, 464, 508 }
 		for i, e in ipairs(NAV) do
 			local name, icon = e[1], e[2]
 			local y = navY[i]
@@ -2400,7 +2405,6 @@ do
 		colorsText.ZIndex = 6
 		colorsButton.MouseButton1Click:Connect(function() N.selectPage("Settings") end)
 
-		-- carte joueur
 		local card = Instance.new("Frame")
 		card.AnchorPoint = Vector2.new(0, 1)
 		card.Position = UDim2.new(0, 10, 1, -10)
@@ -2450,22 +2454,8 @@ do
 		logo.ImageColor3 = Color3.new(1, 1, 1)
 		logo.ZIndex = 6
 		logo.Parent = sidebar
-
-		local bottomSearch = Instance.new("TextLabel")
-		bottomSearch.Name = "BottomSearch"
-		bottomSearch.BackgroundTransparency = 1
-		bottomSearch.Position = UDim2.new(0, 18, 1, -38)
-		bottomSearch.Size = UDim2.new(0, 70, 0, 26)
-		bottomSearch.Font = Enum.Font.GothamMedium
-		bottomSearch.Text = ""
-		bottomSearch.TextSize = 16
-		bottomSearch.TextXAlignment = Enum.TextXAlignment.Left
-		bottomSearch.TextColor3 = T.SubText
-		bottomSearch.Parent = sidebar
-		bottomSearch.Visible = false
 	end
 
-	-- zone de contenu (CanvasGroup : fondu + glissement à chaque changement d'onglet)
 	local content = Instance.new("Frame")
 	content.Name = "Content"
 	content.BackgroundTransparency = 1
@@ -2512,16 +2502,15 @@ do
 	grid.AutomaticSize = Enum.AutomaticSize.Y
 	grid.Parent = scroll
 
-	local pool = Instance.new("Frame") -- cartes non affichées
+	local pool = Instance.new("Frame")
 	pool.Name = "Pool"
 	pool.Visible = false
 	pool.BackgroundTransparency = 1
 	pool.Parent = gui
 
-	local registry = {} -- { text, card, row }
+	local registry = {}
 	N.cols = {}
 
-	-- répartit les cartes de l'onglet courant en 1 à 3 colonnes (la plus courte d'abord)
 	function N.layout()
 		local sbw = N.compact and 68 or SIDE_W
 		local w = FULL.X.Offset - sbw - 28 - 12
@@ -2641,29 +2630,6 @@ do
 	profileText.TextWrapped = true
 	profileText.ZIndex = 12
 	profileText.Parent = profile
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.Position = UDim2.new(0.58, 0, 0, 82)
-	statusLabel.Size = UDim2.new(0.38, 0, 0, 18)
-	statusLabel.Font = Enum.Font.Gotham
-	statusLabel.Text = "Status:"
-	statusLabel.TextSize = 12
-	statusLabel.TextColor3 = T.Text
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-	statusLabel.ZIndex = 12
-	statusLabel.Parent = profile
-	local status = Instance.new("TextButton")
-	status.Position = UDim2.new(0.58, 0, 0, 106)
-	status.Size = UDim2.new(0.4, -2, 0, 34)
-	status.BackgroundColor3 = Color3.fromRGB(25, 25, 24)
-	status.BorderSizePixel = 1
-	status.BorderColor3 = T.Stroke
-	status.Font = Enum.Font.Gotham
-	status.Text = "Neutral                         ▾"
-	status.TextSize = 12
-	status.TextColor3 = T.Text
-	status.ZIndex = 12
-	status.Parent = profile
 
 	local actionNames = { "Teleport", "Spectate", "Select as Target", "Highlight" }
 	local playerActionButtons = {}
@@ -2688,9 +2654,6 @@ do
 		playerActionButtons[actionName] = action
 	end
 
-	-- Player actions: spectate/highlight/selection are local client features.
-	-- Teleport is requested only through a server RemoteEvent that must perform
-	-- its own admin/permission checks; no client-side permission is trusted.
 	playerActionButtons["Spectate"].MouseButton1Click:Connect(function()
 		if not selectedPlayer or not selectedPlayer.Parent then return end
 		if Config.View.Enabled and Config.View.Target == selectedPlayer.Name then
@@ -2829,7 +2792,9 @@ do
 		animateIn()
 	end
 
-
+	----------------------------------------------------------------
+	-- Search
+	----------------------------------------------------------------
 	do
 		local sbox = Instance.new("Frame")
 		sbox.Name = "SearchBox"
@@ -2998,7 +2963,7 @@ do
 	end
 
 	----------------------------------------------------------------
-	-- Cartes + widgets compacts
+	-- Card + widgets
 	----------------------------------------------------------------
 	local function makeCard(title, icon, cats)
 		local card = Instance.new("Frame")
@@ -3047,7 +3012,7 @@ do
 		ln.BorderSizePixel = 0
 		ln.Parent = hd
 
-		do -- barre d'accent à gauche du titre
+		do
 			local bar = Instance.new("Frame")
 			bar.Position = UDim2.new(0, -12, 0, 4)
 			bar.Size = UDim2.new(0, 3, 0, 18)
@@ -3236,11 +3201,10 @@ do
 		return box
 	end
 
-	-- valeur modifiable : [-] [valeur] [+] (+ curseur si smin/smax) ; la case et les boutons n'ont aucune limite
 	local function makeStepper(text, getter, setter, step, smin, smax)
 		local hasSlider = smin ~= nil
 		local row = addRow(30)
-		local lbl = rowLabel(row, text, hasSlider and UDim2.new(0, 80, 1, 0) or UDim2.new(1, -112, 1, 0))
+		rowLabel(row, text, hasSlider and UDim2.new(0, 80, 1, 0) or UDim2.new(1, -112, 1, 0))
 
 		local plus = smallBtn(row, "+", -2)
 		local minus = smallBtn(row, "−", -26)
@@ -3471,7 +3435,6 @@ do
 
 	local function keyLabel(keys) return keys[1].Name end
 
-	-- raccourcis pour les valeurs de Config
 	local function cfgToggle(text, tbl, key, keyText, after)
 		makeToggle(text, function() return tbl[key] end,
 			function(v) tbl[key] = v; if after then after(v) end; refreshUI() end, keyText)
@@ -3485,7 +3448,7 @@ do
 	local PARTS = { { "Tête", "Head" }, { "Torse", "Torso" }, { "Centre", "HumanoidRootPart" } }
 
 	----------------------------------------------------------------
-	-- Contenu : toutes les cartes
+	-- CONTENU
 	----------------------------------------------------------------
 	makeCard("Général", "★", { "Home", "Movement" })
 	makeToggle("Noclip", function() return Config.Noclip.Enabled end, setNoclip, keyLabel(Config.Keys.Noclip))
@@ -3496,7 +3459,11 @@ do
 	makeStepper("Jump Power", function() return Config.Jump.Power end, setJumpPower, Config.Jump.Step, Config.Jump.Min, Config.Jump.Max)
 	makeToggle("Fly", function() return Config.Fly.Enabled end, setFly, keyLabel(Config.Keys.Fly))
 	makeStepper("Fly Speed", function() return Config.Fly.Speed end, setFlySpeed, Config.Fly.Step, 0, 300)
-	makeNote("Fly classique : WASD + Espace / Ctrl gauche")
+	makeSegment("Mode de vol", {
+		{ "Défaut", "Default" },
+		{ "Caméra", "Camera" },
+	}, function() return Config.Fly.Mode end, function(v) Config.Fly.Mode = v; refreshUI() end)
+	makeNote("Fly : WASD + Espace / Ctrl gauche")
 
 	makeCard("Nage", "≈", { "Home", "Movement" })
 	makeToggle("Vitesse de nage perso", function() return Config.Swim.Enabled end, setSwimEnabled)
@@ -3513,13 +3480,31 @@ do
 		function(v) Config.Aimbot.Smoothness = math.clamp(v, 0.01, 1); refreshUI() end, 0.05, 0.01, 1)
 	makeSegment("Target Part", PARTS, function() return Config.Aimbot.TargetPart end,
 		function(v) both("TargetPart", v); refreshUI() end)
+	makeSegment("Aim Mode", {
+		{ "Caméra → cible", "Camera" },
+		{ "Curseur → cible", "Cursor" },
+	}, function() return Config.Aimbot.AimMode end, function(v) Config.Aimbot.AimMode = v; refreshUI() end)
 	makeToggle("Team Check", function() return Config.Aimbot.TeamCheck end, function(v) both("TeamCheck", v); refreshUI() end)
 	makeToggle("Wall Check", function() return Config.Aimbot.WallCheck end, function(v) both("WallCheck", v); refreshUI() end)
 	makeToggle("Prediction", function() return Config.Aimbot.Prediction end, function(v) both("Prediction", v); refreshUI() end)
 	cfgToggle("Aimbot : maintenir clic droit", Config.Aimbot, "HoldToAim")
 	cfgStep("Silent Aim : Hit Chance (%)", Config.SilentAim, "HitChance", 5, 1, 100,
 		function() Config.SilentAim.HitChance = math.clamp(Config.SilentAim.HitChance, 0, 100) end)
-	makeNote("Le cercle FOV s'affiche si \"FOV Circle\" est activé (onglet Visuals). Silent Aim : le jeu doit appeler _G.DevTools.GetAimPosition(...), ou un executor avec hookmetamethod le branche tout seul sur mouse.Hit.")
+	makeNote("Mode Curseur = le curseur se déplace vers la cible. Nécessite mousemoverel (executor) sinon fallback caméra.")
+
+	makeCard("AimTracer Settings", "◈", { "Home", "Visuals", "Combat" })
+	makeToggle("AimTracer", function() return Config.AimTracer.Enabled end, function(v)
+		Config.AimTracer.Enabled = v
+		refreshUI()
+	end)
+	cfgStep("Épaisseur", Config.AimTracer, "Thickness", 0.5, 0.5, 10)
+	cfgToggle("Point à la cible", Config.AimTracer, "ShowDot")
+	cfgToggle("Fondu vers la cible", Config.AimTracer, "FadeEnd")
+	cfgToggle("Depuis le centre", Config.AimTracer, "FromCenter")
+	makeSwatches("Couleur tracer", {
+		Color3.fromRGB(235, 55, 35), Color3.fromRGB(255, 190, 60), Color3.fromRGB(60, 200, 255),
+		Color3.fromRGB(70, 220, 110), Color3.fromRGB(190, 90, 255), Color3.new(1, 1, 1),
+	}, function(c) Config.AimTracer.Color = c end)
 
 	makeCard("Wallbang", "▦", { "Home", "Combat" })
 	makeToggle("Wallbang", function() return Config.Wallbang.Enabled end, function(v) Config.Wallbang.Enabled = v; refreshUI() end)
@@ -3552,14 +3537,10 @@ do
 	cfgToggle("Maintenir le clic", Config.RapidFire, "HoldOnly")
 	cfgToggle("Forcer Tool.Enabled", Config.RapidFire, "ForceEnabled")
 	cfgToggle("Deactivate après chaque tir", Config.RapidFire, "Deactivate")
-	makeNote("Arme en main + clic gauche maintenu. La valeur n'a pas de limite (60 tirs max par image pour ne pas figer le jeu).")
+	makeNote("Reste actif jusqu'à désactivation manuelle (touche U ou toggle).")
 
 	makeCard("ESP & Visuals", "◉", { "Home", "Visuals" })
 	makeToggle("ESP", function() return Config.ESP.Enabled end, setESP, keyLabel(Config.Keys.ESP))
-	makeToggle("AimTracer", function() return Config.AimTracer.Enabled end, function(v)
-		Config.AimTracer.Enabled = v
-		refreshUI()
-	end)
 	cfgToggle("FOV Circle", Config.FOVCircle, "Show")
 	makeSub("ESP Settings")
 	makeSwatches("Fill Color", {
@@ -3576,7 +3557,70 @@ do
 	cfgToggle("Show Distance", Config.ESP, "ShowDistance", nil, espAfter)
 	cfgToggle("Team Check", Config.ESP, "TeamCheck", nil, espAfter)
 
-	makeCard("View Player", "◉", { "Home", "Player" })
+	makeCard("Player Actions", "◉", { "Player", "Home" })
+	makeSub("Informations")
+	local infoRow = addRow(60)
+	local infoLbl = newLabel(infoRow, "", 12, T.SubText, Enum.Font.GothamMedium)
+	infoLbl.Position = UDim2.new(0, 4, 0, 4)
+	infoLbl.Size = UDim2.new(1, -8, 1, -8)
+	infoLbl.TextWrapped = true
+	infoLbl.TextYAlignment = Enum.TextYAlignment.Top
+	table.insert(refreshers, function()
+		local _, hum, root = getChar()
+		if hum and root then
+			local ping = math.floor(player:GetNetworkPing() * 1000 + 0.5)
+			infoLbl.Text = string.format(
+				"HP: %d / %d   •   Vitesse: %.1f\nPosition: %.1f, %.1f, %.1f   •   Ping: %d ms",
+				math.floor(hum.Health), math.floor(hum.MaxHealth),
+				hum.WalkSpeed, root.Position.X, root.Position.Y, root.Position.Z, ping
+			)
+		end
+	end)
+
+	makeSub("Résurrection / soin")
+	makeButton("Soigner au max", function()
+		local _, hum = getChar()
+		if hum then hum.Health = hum.MaxHealth; U.notify("Soigné") end
+	end)
+	makeButton("Réinitialiser le personnage", function()
+		local char = player.Character
+		if char then
+			local hum = char:FindFirstChildOfClass("Humanoid")
+			if hum then hum.Health = 0 end
+		end
+	end, true)
+
+	makeSub("Apparence")
+	makeButton("Réinitialiser mes vêtements", function()
+		local char = player.Character
+		if not char then return end
+		for _, c in ipairs(char:GetChildren()) do
+			if c:IsA("Accessory") or c:IsA("Shirt") or c:IsA("Pants") or c:IsA("ShirtGraphic") then
+				c:Destroy()
+			end
+		end
+		U.notify("Vêtements retirés")
+	end)
+	makeButton("Rendre mon personnage invisible", function()
+		local char = player.Character
+		if not char then return end
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") and p.Name ~= "HumanoidRootPart" then
+				p.Transparency = 1
+			end
+		end
+	end)
+	makeButton("Rendre mon personnage visible", function()
+		local char = player.Character
+		if not char then return end
+		for _, p in ipairs(char:GetDescendants()) do
+			if p:IsA("BasePart") then
+				p.Transparency = 0
+			end
+		end
+	end)
+
+	makeCard("View Player", "◉", { "Player" })
 	makeTextAction("View un joueur", "nom", "View", function(t)
 		local p = findPlayerByName(t)
 		if p and viewPlayer(p) then U.notify("View : " .. p.Name) else U.notify("Joueur introuvable") end
@@ -3661,12 +3705,72 @@ do
 	makeButton("Annuler   [Ctrl+Z]", function() BTf.undo() end)
 	makeButton("Rétablir   [Ctrl+Y]", function() BTf.redo() end)
 	makeButton("Tout annuler", function() BTf.undoAll() end, true)
-	makeNote("V = outil suivant • Ctrl+D = cloner • Retour arrière = supprimer • Ctrl+clic = multi-sélection • Shift+clic = modèle entier. Tout est client-side.")
+	makeNote("V = outil suivant • Ctrl+D = cloner • Retour arrière = supprimer • Ctrl+clic = multi-sélection • Shift+clic = modèle entier.")
 
 	makeCard("Nextbot Spam", "☠", { "Home", "Misc", "Troll" })
 	makeButton("Spawn Nextbot (x1)", function() spawnLocalNextbot() end)
 	cfgStep("Speed", Config.NextbotSpam, "Speed", 5, 0, 200)
 
+	----------------------------------------------------------------
+	-- Keybinds
+	----------------------------------------------------------------
+	makeCard("Keybinds", "⌨", { "Keybinds", "Settings", "Home" })
+	makeNote("Clique sur une touche pour la changer, Échap pour annuler.")
+
+	local keybindGroups = {
+		{ "Movement", { "Fly", "Noclip", "InfJump", "WalkSpeedUp", "WalkSpeedDown", "JumpPowerUp", "JumpPowerDown", "FlySpeedUp", "FlySpeedDown" } },
+		{ "Combat", { "Aimbot", "SilentAim", "Camlock", "RapidFire", "AutoFire", "FastMod" } },
+		{ "Visuals", { "ESP" } },
+		{ "Troll", { "WalkFling", "FlingPowerUp", "FlingPowerDown" } },
+		{ "Player", { "ViewNext", "ViewStop", "ClickTP", "TPNext", "TPPrev", "SavePos", "LoadPos" } },
+		{ "BTools", { "BTools", "BToolsMode", "BToolsUndo" } },
+		{ "Menu", { "ToggleMenu" } },
+	}
+
+	for _, group in ipairs(keybindGroups) do
+		makeSub(group[1])
+		for _, bindName in ipairs(group[2]) do
+			local list = Config.Keys[bindName]
+			if list and #list > 0 then
+				for idx, kc in ipairs(list) do
+					local row = addRow(30)
+					local lbl = newLabel(row, bindName .. (#list > 1 and ("  [" .. idx .. "]") or ""), 13, T.Text, Enum.Font.GothamMedium)
+					lbl.Position = UDim2.new(0, 4, 0, 0)
+					lbl.Size = UDim2.new(1, -100, 1, 0)
+					local btn = Instance.new("TextButton")
+					btn.AnchorPoint = Vector2.new(1, 0.5)
+					btn.Position = UDim2.new(1, -2, 0.5, 0)
+					btn.Size = UDim2.new(0, 84, 0, 24)
+					btn.BackgroundColor3 = T.Bg
+					btn.BorderSizePixel = 0
+					btn.Font = Enum.Font.Code
+					btn.TextSize = 12
+					btn.TextColor3 = T.Text
+					btn.Text = kc.Name
+					btn.ZIndex = 4
+					btn.Parent = row
+					corner(btn, 6)
+					local bst = stroke(btn, T.Stroke, 1)
+					table.insert(refreshKeyLabels, function()
+						if not btn.Parent then return end
+						local cur = Config.Keys[bindName][idx]
+						btn.Text = cur and cur.Name or "?"
+					end)
+					btn.MouseButton1Click:Connect(function()
+						btn.Text = "Appuie…"
+						btn.TextColor3 = T.Accent
+						tw(bst, { Color = T.Accent }, 0.15)
+						listeningBind = { cat = bindName, idx = idx, btn = btn, st = bst }
+					end)
+					register(row, bindName .. " (" .. kc.Name .. ")")
+				end
+			end
+		end
+	end
+
+	----------------------------------------------------------------
+	-- Interface settings
+	----------------------------------------------------------------
 	makeCard("Interface", "◐", { "Home", "Settings" })
 	makeSwatches("Couleur d'accent", {
 		Color3.fromRGB(36, 140, 255), Color3.fromRGB(124, 108, 255), Color3.fromRGB(50, 210, 220), Color3.fromRGB(60, 200, 120),
@@ -3683,12 +3787,11 @@ do
 	makeButton("Preset : Fenêtre (900x580)", function() U.setPreset(900, 580) end)
 	makeButton("Preset : Large (1000x640)", function() U.setPreset(1000, 640) end)
 	makeButton("Preset : Bandeau large (1100x340)", function() U.setPreset(1100, 340) end)
-		makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
+	makeButton("Réinitialiser taille et position", function() U.resetWindow() end)
 	makeNote("Entrée (ou K / Ctrl droit) : cacher / afficher le panel.")
 
-
 	----------------------------------------------------------------
-	-- Ouverture / fermeture / réduction / flou
+	-- Ouverture / fermeture
 	----------------------------------------------------------------
 	function U.updateFx()
 		local showFx = N.open and not N.minimized
@@ -3696,7 +3799,6 @@ do
 		tw(dim, { BackgroundTransparency = showFx and (1 - math.clamp(M.Dim, 0, 1)) or 1 }, 0.4)
 	end
 
-	local function mainPos() return M.StartPosition end
 	local homePos = nil
 
 	function U.setOpen(v)
@@ -3788,7 +3890,6 @@ do
 	applyLayout()
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(applyLayout)
 
-	-- poignée de redimensionnement
 	do
 		local grip = Instance.new("TextButton")
 		grip.Name = "Grip"
@@ -3813,7 +3914,7 @@ do
 		UIS.InputChanged:Connect(function(i)
 			if gDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
 				local d = i.Position - gStart
-				M.Width = math.clamp(gW + d.X * 2, 340, 1300) -- fenêtre centrée : ×2 pour suivre le curseur
+				M.Width = math.clamp(gW + d.X * 2, 340, 1300)
 				M.Height = math.clamp(gH + d.Y * 2, 320, 900)
 				applyLayout()
 			end
@@ -3825,7 +3926,6 @@ do
 		end)
 	end
 
-	-- animation d'apparition au lancement
 	scale.Scale = 0.88
 	N.selectPage("Player")
 	tw(scale, { Scale = 1 }, 0.6, Enum.EasingStyle.Back)
@@ -3835,13 +3935,13 @@ do
 end
 
 ----------------------------------------------------------------------
--- BLOC 2 : BTools complets (type F3X) - côté client uniquement
+-- BLOC 2 : BTools
 ----------------------------------------------------------------------
 do
 	local BT = Config.BTools
 	local gui, T, notify = U.gui, U.T, U.notify
 	local corner, stroke, tw, newLabel = U.corner, U.stroke, U.tw, U.newLabel
-	local S, A, W = {}, {}, {} -- S = sélection / géométrie, A = actions, W = widgets du panneau
+	local S, A, W = {}, {}, {}
 
 	local selection, selSet, selListeners = {}, {}, {}
 	local undoStack, redoStack = {}, {}
@@ -3872,7 +3972,6 @@ do
 		Top = "TopSurface", Bottom = "BottomSurface", Front = "FrontSurface",
 		Back = "BackSurface", Left = "LeftSurface", Right = "RightSurface",
 	}
-	-- { id, icône, nom } ; les ids qui commencent par @ sont des actions immédiates
 	local TOOLS = {
 		{ "Select", "◎", "Choisir" }, { "Move", "↔", "Déplacer" }, { "Resize", "⤢", "Taille" }, { "Rotate", "⟳", "Pivoter" },
 		{ "Paint", "◐", "Couleur" }, { "Material", "▤", "Matière" }, { "Surface", "▦", "Surface" }, { "Light", "☀", "Lumière" },
@@ -3882,9 +3981,6 @@ do
 	local TOOL_TITLES = {}
 	for _, t in ipairs(TOOLS) do TOOL_TITLES[t[1]] = t[3] end
 
-	----------------------------------------------------------------
-	-- Utilitaires
-	----------------------------------------------------------------
 	function S.snap(v, step)
 		if step and step > 0 then return math.round(v / step) * step end
 		return v
@@ -3926,9 +4022,6 @@ do
 		return text
 	end
 
-	----------------------------------------------------------------
-	-- Sélection
-	----------------------------------------------------------------
 	local boxes = Instance.new("Folder")
 	boxes.Name = "BToolsSelection"
 	boxes.Parent = gui
@@ -3984,7 +4077,6 @@ do
 		return table.clone(selection)
 	end
 
-	-- boîte englobante alignée sur le monde : renvoie (centre, taille)
 	function S.aabb(parts)
 		local mn = Vector3.new(math.huge, math.huge, math.huge)
 		local mx = Vector3.new(-math.huge, -math.huge, -math.huge)
@@ -4013,9 +4105,6 @@ do
 		return n .. " objets sélectionnés"
 	end
 
-	----------------------------------------------------------------
-	-- Historique (annuler / rétablir)
-	----------------------------------------------------------------
 	function S.push(label, undoFn, redoFn)
 		table.insert(undoStack, { label = label, undo = undoFn, redo = redoFn })
 		if #undoStack > 200 then table.remove(undoStack, 1) end
@@ -4085,9 +4174,6 @@ do
 		notify(n .. " action(s) annulée(s)")
 	end
 
-	----------------------------------------------------------------
-	-- Actions sur la sélection
-	----------------------------------------------------------------
 	function A.need()
 		local parts = S.copy()
 		if #parts == 0 then
@@ -4097,7 +4183,6 @@ do
 		return parts
 	end
 
-	-- props : table, ou fonction(part) -> table
 	function A.edit(parts, props, label)
 		local before, after = {}, {}
 		for _, p in ipairs(parts) do
@@ -4535,9 +4620,6 @@ do
 		notify(n .. " objet(s) ajouté(s)")
 	end
 
-	----------------------------------------------------------------
-	-- Poignées (déplacer / redimensionner / pivoter)
-	----------------------------------------------------------------
 	local proxy = Instance.new("Part")
 	proxy.Name = "BToolsProxy"
 	proxy.Anchored = true
@@ -4575,7 +4657,6 @@ do
 	hoverBox.SurfaceTransparency = 0.9
 	hoverBox.Parent = gui
 
-	-- repère des poignées pour l'outil actif
 	function S.frame(tool)
 		S.prune()
 		if #selection == 0 then return nil end
@@ -4676,7 +4757,6 @@ do
 				local cf = d.cf0[p]
 				local o = (cf.Position - pivot):Dot(n)
 				local newPos = cf.Position + n * (o * (f - 1))
-				-- axe local de l'objet le plus aligné avec la poignée
 				local dots = { math.abs(cf.RightVector:Dot(n)), math.abs(cf.UpVector:Dot(n)), math.abs(cf.LookVector:Dot(n)) }
 				local idx = 1
 				if dots[2] > dots[idx] then idx = 2 end
@@ -4705,9 +4785,6 @@ do
 		end
 	end)
 
-	----------------------------------------------------------------
-	-- Souris : sélection par clic, glisser direct, survol
-	----------------------------------------------------------------
 	function S.overRect(f)
 		if not f or not f.Visible then return false end
 		local m = UIS:GetMouseLocation()
@@ -4719,7 +4796,6 @@ do
 		return S.overRect(U.main) or S.overRect(dock)
 	end
 
-	-- renvoie (objet visé, rayon, point d'impact)
 	function S.target()
 		local loc = UIS:GetMouseLocation()
 		local ray = camera:ViewportPointToRay(loc.X, loc.Y)
@@ -4873,9 +4949,6 @@ do
 		if not handleBusy and not freeDrag then S.updateHandles() end
 	end)
 
-	----------------------------------------------------------------
-	-- Widgets du panneau
-	----------------------------------------------------------------
 	local oo = 0
 	local optRefresh = {}
 
@@ -5024,7 +5097,6 @@ do
 		end)
 	end
 
-	-- options : liste de "texte" ou { "texte", valeur } ; get peut être nil (boutons d'action)
 	function W.segment(options, get, set, cols)
 		cols = cols or 3
 		local pad, ch = 6, 28
@@ -5105,9 +5177,6 @@ do
 		end, true)
 	end
 
-	----------------------------------------------------------------
-	-- Pages d'options de chaque outil
-	----------------------------------------------------------------
 	builders.Select = function()
 		W.button("Tout désélectionner", function()
 			S.clear()
@@ -5358,9 +5427,6 @@ do
 		refreshUI()
 	end
 
-	----------------------------------------------------------------
-	-- Panneau flottant
-	----------------------------------------------------------------
 	do
 		local DOCK_W = 312
 		dock = Instance.new("Frame")
@@ -5378,7 +5444,6 @@ do
 		stroke(dock, T.Stroke, 1)
 		U.dock = dock
 
-		-- barre de titre
 		local titleBar = Instance.new("Frame")
 		titleBar.Size = UDim2.new(1, 0, 0, 40)
 		titleBar.BackgroundColor3 = T.Panel
@@ -5414,7 +5479,6 @@ do
 		closeD.MouseLeave:Connect(function() tw(closeD, { BackgroundColor3 = T.Card }) end)
 		closeD.MouseButton1Click:Connect(function() BTf.setEnabled(false) end)
 
-		-- déplacement du panneau
 		local dragging, dStart, dPos = false, nil, nil
 		titleBar.InputBegan:Connect(function(i)
 			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
@@ -5436,7 +5500,6 @@ do
 			end
 		end)
 
-		-- grille des outils
 		local grid = Instance.new("Frame")
 		grid.BackgroundTransparency = 1
 		grid.Position = UDim2.new(0, 12, 0, 48)
@@ -5474,7 +5537,6 @@ do
 			end
 		end
 
-		-- annuler / rétablir
 		local undoRow = Instance.new("Frame")
 		undoRow.BackgroundTransparency = 1
 		undoRow.Position = UDim2.new(0, 12, 0, 264)
@@ -5503,7 +5565,6 @@ do
 		undoBtn("↷  Rétablir", function() BTf.redo() end)
 		undoBtn("Tout annuler", function() BTf.undoAll() end)
 
-		-- options de l'outil actif
 		opts = Instance.new("ScrollingFrame")
 		opts.BackgroundTransparency = 1
 		opts.BorderSizePixel = 0
@@ -5545,14 +5606,28 @@ end
 -- BLOC 3 : Raccourcis clavier
 ----------------------------------------------------------------------
 do
-	local main = U.main
-	local function S_ctrl_pressed() return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl) end
-
 	UIS.InputBegan:Connect(function(input, processed)
+		-- Keybind capture
+		if listeningBind then
+			if input.UserInputType == Enum.UserInputType.Keyboard then
+				local lb = listeningBind
+				listeningBind = nil
+				if input.KeyCode == Enum.KeyCode.Escape then
+					lb.btn.Text = Config.Keys[lb.cat][lb.idx].Name
+					lb.btn.TextColor3 = U.T.Text
+					TweenService:Create(lb.st, TweenInfo.new(0.15), { Color = U.T.Stroke }):Play()
+				else
+					lb.btn.TextColor3 = U.T.Text
+					TweenService:Create(lb.st, TweenInfo.new(0.15), { Color = U.T.Stroke }):Play()
+					setKeybind(lb.cat, lb.idx, input.KeyCode)
+				end
+			end
+			return
+		end
+
 		if processed then return end
 
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			-- Click TP : maintenir HoldKey + clic gauche
 			if Config.TP.ClickTP and UIS:IsKeyDown(Config.TP.HoldKey) then
 				local pos = mouseWorldPos()
 				if pos then teleportTo(pos) end
@@ -5564,8 +5639,8 @@ do
 
 		local k = input.KeyCode
 		local keys = Config.Keys
+		local function S_ctrl_pressed() return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl) end
 
-		-- raccourcis BTools (prioritaires quand les BTools sont actifs)
 		if Config.BTools.Enabled then
 			if S_ctrl_pressed() then
 				if k == Enum.KeyCode.Z then
@@ -5593,6 +5668,7 @@ do
 		elseif keyIn(keys.Camlock, k) then
 			setCamlock(not Config.Camlock.Enabled)
 		elseif keyIn(keys.RapidFire, k) then
+			if UIS:GetFocusedTextBox() then return end
 			setRapidFire(not Config.RapidFire.Enabled)
 		elseif keyIn(keys.SilentAim, k) then
 			setSilent(not Config.SilentAim.Enabled)
